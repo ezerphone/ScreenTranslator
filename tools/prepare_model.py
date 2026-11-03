@@ -54,7 +54,13 @@ def main() -> None:
         ("decoder_model.onnx", "decoder.onnx"),
         ("decoder_with_past_model.onnx", "decoder_past.onnx"),
     ]:
-        quantize_dynamic(str(onnx_dir / src), str(assets / dst), weight_type=QuantType.QInt8)
+        # Per-channel scales keep short phrases ("Buy ticket") accurate after quantization.
+        quantize_dynamic(
+            str(onnx_dir / src),
+            str(assets / dst),
+            weight_type=QuantType.QInt8,
+            per_channel=True,
+        )
         print(f"{dst}: {(assets / dst).stat().st_size / 1e6:.1f} MB")
 
     # 3. Tokenizer data as plain text.
