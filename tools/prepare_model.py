@@ -55,10 +55,12 @@ def main() -> None:
         ("decoder_with_past_model.onnx", "decoder_past.onnx"),
     ]:
         # Per-channel scales keep short phrases ("Buy ticket") accurate after quantization.
+        # Unsigned weights (U8U8) avoid the int8 overflow some x86 CPUs hit with signed weights,
+        # so results are the same on every processor.
         quantize_dynamic(
             str(onnx_dir / src),
             str(assets / dst),
-            weight_type=QuantType.QInt8,
+            weight_type=QuantType.QUInt8,
             per_channel=True,
         )
         print(f"{dst}: {(assets / dst).stat().st_size / 1e6:.1f} MB")

@@ -44,6 +44,8 @@ class MarianTranslatorTest {
                 assertTrue("no Hebrew in: $ours", ours.any { it in 'א'..'ת' })
             }
             println("Exact matches with the full-precision reference: $exact / ${lines.size}")
+            // Quantization may change a word here and there, but a broken model changes everything.
+            assertTrue("translation quality dropped: only $exact exact matches", exact * 2 >= lines.size)
         }
     }
 }

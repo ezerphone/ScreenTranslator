@@ -45,6 +45,7 @@ jobs:
 
       - name: Test the translator against the reference
         run: |
+          lscpu | grep -E "Model name|Flags" | sed 's/Flags:.*\(avx512_vnni\|avx_vnni\).*/VNNI: yes/' || true
           chmod +x gradlew
           ./gradlew :translator:test --stacktrace \
             -PmodelDir="$PWD/app/src/main/assets/translator" \
