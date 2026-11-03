@@ -5,12 +5,18 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.screentranslate.translator.MarianTranslator
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
+
+/** Text found by OCR, in the coordinates of the image it was found in. */
+data class OcrBlock(val rect: Rect, val lineCount: Int, val text: String)
 
 data class TranslatedBlock(
     val rect: Rect,
@@ -20,67 +26,100 @@ data class TranslatedBlock(
 )
 
 /**
- * Screenshot -> OCR (ML Kit, Latin) -> English->Hebrew translation (bundled model).
- * Everything runs on the phone; no internet is used.
- * Call from the main thread; heavy work is moved to background dispatchers.
+ * App-wide translation engine: OCR (ML Kit, Latin) + bundled English->Hebrew model.
+ * Shared by the floating button, the share screen and the text-selection menu, so the
+ * model is loaded only once per process. Everything runs on the phone.
  */
-class TranslationEngine(private val context: Context) {
+object TranslationEngine {
 
-    private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    private var recognizer: TextRecognizer? = null
     private var translator: MarianTranslator? = null
+    private val loadLock = Mutex()
 
     private val cache = object : LinkedHashMap<String, String>(64, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?) = size > 300
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?) = size > 500
     }
 
-    private suspend fun translator(onStatus: (String) -> Unit): MarianTranslator {
+    private val sentenceBreak = Regex("(?<=[.!?…])\\s+(?=[\"'“(\\[]?[A-Z0-9])")
+
+    private fun recognizer(): TextRecognizer = synchronized(this) {
+        recognizer ?: TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS).also { recognizer = it }
+    }
+
+    private suspend fun translator(context: Context, onStatus: (String) -> Unit): MarianTranslator {
         translator?.let { return it }
-        if (!ModelFiles.isInstalled(context)) onStatus("מכין את מנוע התרגום (פעם אחת בלבד)…")
-        val created = withContext(Dispatchers.IO) {
-            MarianTranslator(ModelFiles.ensureInstalled(context))
+        return loadLock.withLock {
+            translator ?: run {
+                if (!ModelFiles.isInstalled(context)) onStatus("מכין את מנוע התרגום (פעם אחת בלבד)…")
+                withContext(Dispatchers.IO) {
+                    MarianTranslator(ModelFiles.ensureInstalled(context.applicationContext))
+                }.also { translator = it }
+            }
         }
-        translator = created
-        return created
     }
 
-    suspend fun process(bitmap: Bitmap, onStatus: (String) -> Unit): List<TranslatedBlock> {
-        val result = recognizer.process(InputImage.fromBitmap(bitmap, 0)).await()
-
-        class Found(val box: Rect, val lines: Int, val text: String)
-
-        val blocks = result.textBlocks.mapNotNull { block ->
+    /** OCR. Blocks with fewer than two letters (numbers, icons) are dropped. */
+    suspend fun recognize(bitmap: Bitmap): List<OcrBlock> {
+        val result = recognizer().process(InputImage.fromBitmap(bitmap, 0)).await()
+        return result.textBlocks.mapNotNull { block ->
             val box = block.boundingBox ?: return@mapNotNull null
             // OCR breaks sentences into lines; rejoin them so the translator sees whole sentences.
             val text = block.lines.joinToString(" ") { it.text.trim() }.trim()
-            if (text.count { it.isLetter() } < 2) null else Found(box, block.lines.size, text)
+            if (text.count { it.isLetter() } < 2) null else OcrBlock(box, block.lines.size, text)
         }
-        if (blocks.isEmpty()) return emptyList()
+    }
 
-        val engine = translator(onStatus)
+    /** OCR + translation; boxes are shifted by ([offsetX], [offsetY]) into screen coordinates. */
+    suspend fun translateImage(
+        context: Context,
+        bitmap: Bitmap,
+        offsetX: Int = 0,
+        offsetY: Int = 0,
+        onStatus: (String) -> Unit = {},
+    ): List<TranslatedBlock> {
+        val blocks = recognize(bitmap)
+        if (blocks.isEmpty()) return emptyList()
+        val engine = translator(context, onStatus)
         return withContext(Dispatchers.Default) {
-            blocks.map { found ->
-                val translated = cache.getOrPut(found.text) {
-                    engine.translate(prepare(found.text)).ifEmpty { found.text }
-                }
-                TranslatedBlock(found.box, found.lines, found.text, translated)
+            blocks.map { b ->
+                val rect = Rect(b.rect).apply { offset(offsetX, offsetY) }
+                TranslatedBlock(rect, b.lineCount, b.text, translateWith(engine, b.text))
             }
         }
+    }
+
+    /** Free text (shared or selected): keeps paragraphs, translates sentence by sentence. */
+    suspend fun translateText(context: Context, text: String, onStatus: (String) -> Unit = {}): String {
+        val engine = translator(context, onStatus)
+        return withContext(Dispatchers.Default) { translateWith(engine, text) }
+    }
+
+    private fun translateWith(engine: MarianTranslator, text: String): String =
+        text.split('\n').joinToString("\n") { paragraph ->
+            if (paragraph.isBlank()) {
+                ""
+            } else {
+                sentenceBreak.split(paragraph.trim()).joinToString(" ") { sentence ->
+                    translateSentence(engine, sentence)
+                }
+            }
+        }
+
+    private fun translateSentence(engine: MarianTranslator, sentence: String): String {
+        if (sentence.count { it.isLetter() } < 2) return sentence
+        synchronized(cache) { cache[sentence] }?.let { return it }
+        val translated = engine.translate(prepare(sentence)).ifEmpty { sentence }
+        synchronized(cache) { cache[sentence] = translated }
+        return translated
     }
 
     /** "SERVICE UPDATE" translates poorly; "Service update" translates well. */
     private fun prepare(text: String): String {
         val letters = text.filter { it.isLetter() }
         if (letters.length > 3 && letters.all { it.isUpperCase() }) {
-            val lower = text.lowercase()
-            return lower.replaceFirstChar { it.uppercase() }
+            return text.lowercase().replaceFirstChar { it.uppercase() }
         }
         return text
-    }
-
-    fun close() {
-        recognizer.close()
-        translator?.close()
-        translator = null
     }
 }
 
@@ -95,6 +134,7 @@ object ModelFiles {
 
     fun isInstalled(context: Context) = File(targetDir(context), ".complete").exists()
 
+    @Synchronized
     fun ensureInstalled(context: Context): File {
         val dir = targetDir(context)
         if (File(dir, ".complete").exists()) return dir

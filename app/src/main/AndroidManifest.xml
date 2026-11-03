@@ -24,6 +24,45 @@
             </intent-filter>
         </activity>
 
+        <!-- Text-selection menu ("תרגם לעברית") and the share sheet (text and images). -->
+        <activity
+            android:name=".TranslateActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="תרגם לעברית"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
+        <!-- Quick Settings tile -->
+        <service
+            android:name=".TranslateTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_translate"
+            android:label="מתרגם מסך"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+
         <service
             android:name=".ScreenTranslateService"
             android:exported="false"

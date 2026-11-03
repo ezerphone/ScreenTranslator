@@ -19,6 +19,11 @@ import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        /** Set by the Quick Settings tile: ask for consent and turn the button on right away. */
+        const val EXTRA_AUTO_START = "auto_start"
+    }
+
     private lateinit var bubbleSwitch: Switch
     private lateinit var toggleState: TextView
     private lateinit var statusText: TextView
@@ -65,6 +70,22 @@ class MainActivity : ComponentActivity() {
             PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        handleAutoStart(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleAutoStart(intent)
+    }
+
+    private fun handleAutoStart(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_AUTO_START, false) == true) {
+            intent.removeExtra(EXTRA_AUTO_START)
+            if (!ScreenTranslateService.isRunning) {
+                setSwitch(true)
+                start()
+            }
         }
     }
 

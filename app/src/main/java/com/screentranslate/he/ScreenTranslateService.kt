@@ -8,12 +8,14 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -26,6 +28,8 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
+import android.service.quicksettings.TileService
+import android.text.TextUtils
 import android.util.DisplayMetrics
 import android.view.Display
 import android.view.Gravity
@@ -34,6 +38,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -43,27 +49,33 @@ import androidx.core.content.IntentCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.hypot
+import kotlin.math.max
 
 /**
- * Foreground service that owns the screen capture, the floating bubble and the translation overlay.
+ * Foreground service that owns the screen capture and every floating window:
+ * the "תרגם" button, its menu, the area selector, the translation overlay and the live panel.
  */
 class ScreenTranslateService : Service() {
 
     companion object {
         private const val BRAND = 0xFF0B7A5C.toInt()
+        private const val INK = 0xFF12302A.toInt()
         const val ACTION_START = "com.screentranslate.he.START"
         const val ACTION_STOP = "com.screentranslate.he.STOP"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
         private const val CHANNEL_ID = "screen_translate"
         private const val NOTIFICATION_ID = 1
+        private const val LIVE_INTERVAL_MS = 1200L
 
         @Volatile
         var isRunning = false
@@ -77,7 +89,7 @@ class ScreenTranslateService : Service() {
 
     private lateinit var uiContext: Context
     private lateinit var windowManager: WindowManager
-    private var engine: TranslationEngine? = null
+    private val density get() = resources.displayMetrics.density
 
     private var projection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
@@ -91,6 +103,12 @@ class ScreenTranslateService : Service() {
     private var bubble: TextView? = null
     private var bubbleParams: WindowManager.LayoutParams? = null
     private var overlay: View? = null
+    private var menu: View? = null
+    private var selector: View? = null
+    private var livePanel: View? = null
+    private var liveText: TextView? = null
+    private var liveFrame: View? = null
+    private var liveJob: Job? = null
     private var busy = false
 
     private val projectionCallback = object : MediaProjection.Callback() {
@@ -154,19 +172,29 @@ class ScreenTranslateService : Service() {
         setupCaptureSurface()
         showBubble()
         isRunning = true
+        updateTile()
     }
 
     override fun onDestroy() {
         isRunning = false
         scope.cancel()
-        removeOverlay()
-        bubble?.let { runCatching { windowManager.removeView(it) } }
-        bubble = null
+        removeWindow(overlay)
+        removeWindow(menu)
+        removeWindow(selector)
+        removeWindow(livePanel)
+        removeWindow(liveFrame)
+        removeWindow(bubble)
+        overlay = null; menu = null; selector = null; livePanel = null; liveFrame = null; bubble = null
         releaseCapture()
-        engine?.close()
-        engine = null
         captureThread.quitSafely()
+        updateTile()
         super.onDestroy()
+    }
+
+    private fun updateTile() {
+        runCatching {
+            TileService.requestListeningState(this, ComponentName(this, TranslateTileService::class.java))
+        }
     }
 
     private fun startForegroundWithNotification() {
@@ -187,7 +215,7 @@ class ScreenTranslateService : Service() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_translate)
             .setContentTitle("מתרגם המסך פעיל")
-            .setContentText("הקש על \"תרגם\" כדי לתרגם את המסך לעברית")
+            .setContentText("הקש על \"תרגם\" · לחיצה ארוכה לעוד אפשרויות")
             .setOngoing(true)
             .setContentIntent(openIntent)
             .addAction(0, "עצור", stopIntent)
@@ -282,7 +310,11 @@ class ScreenTranslateService : Service() {
         }
     }
 
-    /** Waits for a frame drawn after the bubble was hidden, then copies it. */
+    private fun ensureCaptureSize() {
+        if (screenSize() != (captureWidth to captureHeight)) setupCaptureSurface()
+    }
+
+    /** Waits for a frame drawn after our windows were hidden, then copies it. */
     private suspend fun captureFreshFrame(): Bitmap? {
         val start = frameCounter
         withTimeoutOrNull(800) {
@@ -317,32 +349,55 @@ class ScreenTranslateService : Service() {
         }
     }
 
-    // ---------------------------------------------------------------- translate
+    /** Crops [full] to [area] (screen coordinates), clamped to the image; recycles [full]. */
+    private fun cropAndRecycle(full: Bitmap, area: Rect): Bitmap? {
+        val r = Rect(area)
+        if (!r.intersect(0, 0, full.width, full.height) || r.width() < 8 || r.height() < 8) {
+            full.recycle()
+            return null
+        }
+        val part = Bitmap.createBitmap(full, r.left, r.top, r.width(), r.height())
+        if (part !== full) full.recycle()
+        return part
+    }
+
+    // ---------------------------------------------------------------- translate (full / area)
 
     private fun onBubbleTap() {
-        if (busy) return
         if (overlay != null) {
             removeOverlay()
             return
         }
-        val view = bubble ?: return
+        translateArea(null)
+    }
+
+    private fun translateArea(area: Rect?) {
+        if (busy) return
         busy = true
         scope.launch {
             try {
-                if (screenSize() != (captureWidth to captureHeight)) setupCaptureSurface()
-                view.visibility = View.INVISIBLE
-                val bitmap = captureFreshFrame()
-                view.visibility = View.VISIBLE
-                if (bitmap == null) {
+                ensureCaptureSize()
+                bubble?.visibility = View.INVISIBLE
+                val full = captureFreshFrame()
+                bubble?.visibility = View.VISIBLE
+                if (full == null) {
                     toast("לא התקבלה תמונת מסך, נסה שוב")
                     return@launch
                 }
                 setBubbleBusy(true)
-                val translator = engine ?: TranslationEngine(applicationContext).also { engine = it }
-                val blocks = translator.process(bitmap) { toast(it) }
+                val bitmap = if (area == null) full else cropAndRecycle(full, area)
+                if (bitmap == null) {
+                    toast("האזור שנבחר ריק")
+                    return@launch
+                }
+                val blocks = TranslationEngine.translateImage(
+                    this@ScreenTranslateService, bitmap,
+                    offsetX = area?.left?.coerceAtLeast(0) ?: 0,
+                    offsetY = area?.top?.coerceAtLeast(0) ?: 0,
+                ) { toast(it) }
                 bitmap.recycle()
                 if (blocks.isEmpty()) {
-                    toast("לא נמצא טקסט באנגלית על המסך")
+                    toast("לא נמצא טקסט באנגלית")
                 } else {
                     showOverlay(blocks)
                 }
@@ -351,22 +406,219 @@ class ScreenTranslateService : Service() {
             } catch (e: Exception) {
                 toast("שגיאה בתרגום: ${e.message ?: e.javaClass.simpleName}")
             } finally {
-                bubble?.visibility = View.VISIBLE
+                bubble?.visibility = if (liveJob == null) View.VISIBLE else View.GONE
                 setBubbleBusy(false)
                 busy = false
             }
         }
     }
 
-    // ---------------------------------------------------------------- floating bubble
+    // ---------------------------------------------------------------- area selection
+
+    private enum class AreaMode { TRANSLATE, LIVE }
+
+    private fun startSelection(mode: AreaMode) {
+        removeOverlay()
+        removeWindow(selector)
+        bubble?.visibility = View.GONE
+        val hint = if (mode == AreaMode.LIVE) "סמן את האזור לתרגום חי" else "גרור אצבע כדי לסמן אזור"
+        val view = SelectionOverlayView(
+            uiContext, hint,
+            onSelected = { rect ->
+                closeSelector()
+                if (mode == AreaMode.LIVE) startLive(rect) else translateArea(rect)
+            },
+            onCancel = {
+                closeSelector()
+                bubble?.visibility = View.VISIBLE
+            }
+        )
+        windowManager.addView(view, fullScreenParams(touchable = true))
+        selector = view
+    }
+
+    private fun closeSelector() {
+        removeWindow(selector)
+        selector = null
+    }
+
+    // ---------------------------------------------------------------- live mode
+
+    private fun startLive(area: Rect) {
+        stopLive(showBubble = false)
+        bubble?.visibility = View.GONE
+        showLiveWindows(area)
+        liveJob = scope.launch {
+            var lastText: String? = null
+            delay(250) // let the selector disappear from the frames
+            while (isActive) {
+                try {
+                    ensureCaptureSize()
+                    val full = withContext(Dispatchers.Default) { grabBitmap() }
+                    val part = full?.let { cropAndRecycle(it, area) }
+                    if (part != null) {
+                        val blocks = TranslationEngine.recognize(part)
+                        part.recycle()
+                        val text = blocks.joinToString("\n") { it.text }
+                        if (text != lastText) {
+                            lastText = text
+                            liveText?.text = if (text.isBlank()) {
+                                "ממתין לטקסט באנגלית…"
+                            } else {
+                                TranslationEngine.translateText(this@ScreenTranslateService, text) { toast(it) }
+                            }
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    liveText?.text = "שגיאה: ${e.message ?: e.javaClass.simpleName}"
+                }
+                delay(LIVE_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun stopLive(showBubble: Boolean = true) {
+        liveJob?.cancel()
+        liveJob = null
+        removeWindow(livePanel)
+        removeWindow(liveFrame)
+        livePanel = null
+        liveFrame = null
+        liveText = null
+        if (showBubble) bubble?.visibility = View.VISIBLE
+    }
+
+    /** A teal frame around the watched area, and the translation panel outside it. */
+    private fun showLiveWindows(area: Rect) {
+        val (screenW, screenH) = screenSize()
+        val inset = (4 * density).toInt()
+
+        val frame = View(uiContext).apply {
+            background = GradientDrawable().apply {
+                setColor(Color.TRANSPARENT)
+                cornerRadius = 10 * density
+                setStroke((2 * density).toInt(), 0xFF2FD3A0.toInt(), 10 * density, 6 * density)
+            }
+        }
+        val frameParams = WindowManager.LayoutParams(
+            area.width() + inset * 2, area.height() + inset * 2,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.LEFT
+            x = area.left - inset
+            y = area.top - inset
+            applyFullScreenInsets()
+        }
+        windowManager.addView(frame, frameParams)
+        liveFrame = frame
+
+        val text = TextView(uiContext).apply {
+            text = "מתחיל תרגום חי…"
+            setTextColor(INK)
+            textSize = 17f
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            textDirection = View.TEXT_DIRECTION_RTL
+            maxLines = 6
+            ellipsize = TextUtils.TruncateAt.END
+            setLineSpacing(3 * density, 1f)
+        }
+        val stop = Button(uiContext).apply {
+            this.text = "עצור"
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            stateListAnimator = null
+            background = GradientDrawable().apply {
+                setColor(BRAND)
+                cornerRadius = 20 * density
+            }
+            setOnClickListener { stopLive() }
+        }
+        val panel = LinearLayout(uiContext).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            gravity = Gravity.CENTER_VERTICAL
+            val pad = (14 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = 20 * density
+                setStroke((1.5f * density).toInt(), BRAND)
+            }
+            elevation = 6 * density
+            addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(
+                stop,
+                LinearLayout.LayoutParams((72 * density).toInt(), (44 * density).toInt()).apply {
+                    marginStart = (10 * density).toInt()
+                }
+            )
+        }
+
+        // Below the area if there is room, otherwise above it; never over it.
+        val margin = (16 * density).toInt()
+        val panelSpace = (170 * density).toInt()
+        val below = screenH - area.bottom > panelSpace
+        val panelParams = WindowManager.LayoutParams(
+            screenW - margin * 2,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            x = margin
+            if (below) {
+                gravity = Gravity.TOP or Gravity.LEFT
+                y = area.bottom + inset * 3
+            } else {
+                gravity = Gravity.BOTTOM or Gravity.LEFT
+                y = max(0, screenH - area.top + inset * 3)
+            }
+            applyFullScreenInsets()
+        }
+        windowManager.addView(panel, panelParams)
+        livePanel = panel
+        liveText = text
+    }
+
+    // ---------------------------------------------------------------- floating button + menu
 
     private fun overlayFlags() =
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
 
+    private fun WindowManager.LayoutParams.applyFullScreenInsets() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            fitInsetsTypes = 0
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        } else if (Build.VERSION.SDK_INT >= 28) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+    }
+
+    private fun fullScreenParams(touchable: Boolean) = WindowManager.LayoutParams(
+        WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        overlayFlags() or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            (if (touchable) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE),
+        PixelFormat.TRANSLUCENT
+    ).apply {
+        gravity = Gravity.TOP or Gravity.LEFT
+        applyFullScreenInsets()
+    }
+
     /** Design C: a teal pill with the translate icon and the word "תרגם". */
     private fun showBubble() {
         if (bubble != null) return
-        val density = resources.displayMetrics.density
         val icon = ContextCompat.getDrawable(uiContext, R.drawable.ic_translate)?.mutate()?.apply {
             val s = (22 * density).toInt()
             setBounds(0, 0, s, s)
@@ -413,6 +665,80 @@ class ScreenTranslateService : Service() {
         }
     }
 
+    /** Long-press menu next to the button. */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showMenu() {
+        closeMenu()
+        removeOverlay()
+        fun item(label: String, primary: Boolean, action: () -> Unit) = Button(uiContext).apply {
+            text = label
+            isAllCaps = false
+            textSize = 15f
+            setTextColor(if (primary) Color.WHITE else INK)
+            stateListAnimator = null
+            background = GradientDrawable().apply {
+                setColor(if (primary) BRAND else 0xFFF1F7F4.toInt())
+                cornerRadius = 22 * density
+            }
+            setOnClickListener {
+                closeMenu()
+                action()
+            }
+        }
+        val gap = (8 * density).toInt()
+        val itemHeight = (46 * density).toInt()
+        val card = LinearLayout(uiContext).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            val pad = (12 * density).toInt()
+            setPadding(pad, pad, pad, pad)
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = 24 * density
+                setStroke((1.5f * density).toInt(), 0xFFDCE9E3.toInt())
+            }
+            elevation = 8 * density
+            val lp = { LinearLayout.LayoutParams((200 * density).toInt(), itemHeight).apply { bottomMargin = gap } }
+            addView(item("תרגום אזור", primary = true) { startSelection(AreaMode.TRANSLATE) }, lp())
+            addView(item("תרגום חי", primary = false) { startSelection(AreaMode.LIVE) }, lp())
+            addView(item("כיבוי", primary = false) {
+                toast("מתרגם המסך כובה")
+                stopSelf()
+            }, LinearLayout.LayoutParams((200 * density).toInt(), itemHeight))
+            setOnTouchListener { _, event ->
+                if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) closeMenu()
+                false
+            }
+        }
+        val anchor = bubbleParams
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            overlayFlags() or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.RIGHT
+            x = anchor?.x ?: 0
+            val (_, screenH) = screenSize()
+            val menuHeight = (190 * density).toInt()
+            val bubbleY = anchor?.y ?: 0
+            // Below the button, or above it when near the bottom.
+            y = if (bubbleY + (60 * density).toInt() + menuHeight < screenH) {
+                bubbleY + (60 * density).toInt()
+            } else {
+                max(0, bubbleY - menuHeight)
+            }
+        }
+        windowManager.addView(card, params)
+        menu = card
+    }
+
+    private fun closeMenu() {
+        removeWindow(menu)
+        menu = null
+    }
+
     private inner class BubbleTouchListener : View.OnTouchListener {
         private val slop = ViewConfiguration.get(uiContext).scaledTouchSlop
         private var downX = 0f
@@ -425,8 +751,7 @@ class ScreenTranslateService : Service() {
         private val longPress = Runnable {
             longPressed = true
             bubble?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            toast("מתרגם המסך כובה")
-            stopSelf()
+            showMenu()
         }
 
         @SuppressLint("ClickableViewAccessibility")
@@ -440,7 +765,7 @@ class ScreenTranslateService : Service() {
                     startY = params.y
                     dragging = false
                     longPressed = false
-                    mainHandler.postDelayed(longPress, 700)
+                    mainHandler.postDelayed(longPress, 600)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - downX
@@ -448,6 +773,7 @@ class ScreenTranslateService : Service() {
                     if (!dragging && hypot(dx, dy) > slop) {
                         dragging = true
                         mainHandler.removeCallbacks(longPress)
+                        closeMenu()
                     }
                     if (dragging) {
                         params.x = startX - dx.toInt() // anchored right: moving right shrinks x
@@ -457,7 +783,9 @@ class ScreenTranslateService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     mainHandler.removeCallbacks(longPress)
-                    if (!dragging && !longPressed) onBubbleTap()
+                    if (!dragging && !longPressed) {
+                        if (menu != null) closeMenu() else onBubbleTap()
+                    }
                 }
                 MotionEvent.ACTION_CANCEL -> mainHandler.removeCallbacks(longPress)
             }
@@ -474,30 +802,17 @@ class ScreenTranslateService : Service() {
             onDismiss = { removeOverlay() },
             onCopy = { copyToClipboard(it) }
         )
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            overlayFlags() or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.LEFT
-            if (Build.VERSION.SDK_INT >= 30) {
-                fitInsetsTypes = 0
-                layoutInDisplayCutoutMode =
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            } else if (Build.VERSION.SDK_INT >= 28) {
-                layoutInDisplayCutoutMode =
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-            }
-        }
-        windowManager.addView(view, params)
+        windowManager.addView(view, fullScreenParams(touchable = true))
         overlay = view
     }
 
     private fun removeOverlay() {
-        overlay?.let { runCatching { windowManager.removeView(it) } }
+        removeWindow(overlay)
         overlay = null
+    }
+
+    private fun removeWindow(view: View?) {
+        view?.let { runCatching { windowManager.removeView(it) } }
     }
 
     private fun copyToClipboard(text: String) {

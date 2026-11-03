@@ -221,7 +221,7 @@
             android:layout_marginStart="4dp"
             android:layout_marginTop="20dp"
             android:lineSpacingExtra="5dp"
-            android:text="• בחלון האישור של אנדרואיד בחר &quot;כל המסך&quot;\n• הקשה על &quot;תרגם&quot; – תרגום המסך\n• גרירה – הזזת הכפתור · לחיצה ארוכה – כיבוי\n• לחיצה ארוכה על תרגום – העתקה"
+            android:text="• בחלון האישור של אנדרואיד בחר &quot;כל המסך&quot;\n• הקשה על &quot;תרגם&quot; – תרגום כל המסך\n• לחיצה ארוכה על &quot;תרגם&quot; – תרגום אזור, תרגום חי, כיבוי\n• סימון טקסט בכל אפליקציה ← &quot;תרגם לעברית&quot;\n• שיתוף טקסט או תמונה ← &quot;תרגם לעברית&quot;\n• אפשר להוסיף כפתור &quot;מתרגם מסך&quot; להגדרות המהירות"
             android:textColor="@color/ink_soft"
             android:textSize="13sp" />
     </LinearLayout>
