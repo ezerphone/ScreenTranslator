@@ -11,8 +11,13 @@ android {
         applicationId = "com.screentranslate.he"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
+
+        // Phones only: keeps the APK smaller (the translation engine has native code).
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     // A fixed key stored in the project, so every build can be installed
@@ -49,14 +54,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
-    // On-device OCR (bundled models, work offline)
+    // On-device OCR for Latin script (bundled model, works offline)
     implementation("com.google.mlkit:text-recognition:16.0.1")
-    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
-    implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
-    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
-    implementation("com.google.mlkit:text-recognition-devanagari:16.0.1")
 
-    // Language detection + on-device translation
-    implementation("com.google.mlkit:language-id:17.0.6")
-    implementation("com.google.mlkit:translate:17.0.3")
+    // Bundled English -> Hebrew translation (OPUS-MT on ONNX Runtime)
+    implementation(project(":translator"))
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
 }

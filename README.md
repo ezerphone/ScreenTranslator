@@ -1,24 +1,22 @@
 # מתרגם מסך (Android)
 
-בועה צפה שמתרגמת לעברית כל טקסט שמופיע על המסך, מעל כל אפליקציה.
-זיהוי הטקסט והתרגום רצים על הטלפון עצמו (Google ML Kit), בחינם וללא מפתח API.
+כפתור "תרגם" צף מעל כל אפליקציה: הקשה עליו מתרגמת לעברית את כל הטקסט באנגלית שעל המסך,
+ומציגה את התרגום במקום המקורי. הכול רץ על הטלפון – בלי אינטרנט ובלי מפתח API.
 
-## איך זה עובד
-1. לוחצים על הבועה ← האפליקציה מצלמת את המסך (MediaProjection).
-2. זיהוי טקסט (OCR) ← זיהוי השפה ← תרגום לעברית.
-3. התרגום מוצג מעל הטקסט המקורי, באותו מקום. לחיצה סוגרת, לחיצה ארוכה מעתיקה.
+## איך זה בנוי
+- זיהוי טקסט: Google ML Kit (מודל לטיני מובנה).
+- תרגום: המודל הפתוח [Helsinki-NLP/opus-mt-en-he](https://huggingface.co/Helsinki-NLP/opus-mt-en-he),
+  מומר ל-ONNX ומכווץ ל-int8, ורץ עם ONNX Runtime. המודל ארוז בתוך ה-APK.
+- `translator/` – מודול JVM טהור (טוקנייזר SentencePiece + פענוח עם מטמון), נבדק מול הפלט של transformers.
+- `tools/prepare_model.py` – מוריד את המודל, ממיר, מכווץ וכותב ל-`app/src/main/assets/translator/`.
 
-## בנייה ל-APK בלי מחשב (GitHub)
-1. צור מאגר חדש ב-GitHub והעלה אליו את כל הקבצים מהתיקייה הזו (כולל `.github`).
-2. הבנייה רצה אוטומטית (לשונית **Actions**, כ-5 דקות).
-3. בסיום, בלשונית **Releases** תופיע גרסה `latest` עם הקובץ `ScreenTranslator.apk` – הורד והתקן בטלפון
-   (צריך לאשר "התקנה ממקורות לא ידועים").
+## בנייה
+הבנייה רצה אוטומטית ב-GitHub Actions בכל push: הכנת המודל → בדיקת המתרגם → APK.
+הקובץ מתפרסם ב-Releases בשם `ScreenTranslator.apk`.
 
-## בנייה עם Android Studio
-File ← Open ← בחר את התיקייה ← Run.
-
-## הגבלות
-- סוגי כתב נתמכים בזיהוי: לטיני (אנגלית, ספרדית, צרפתית, גרמנית...), סינית, יפנית, קוריאנית, דוונאגרי.
-  כתב קירילי (רוסית) וערבית אינם נתמכים ב-OCR המקומי של ML Kit.
-- בכל שפה חדשה יורד בפעם הראשונה מודל תרגום של כ-30MB.
-- דרוש Android 8.0 ומעלה.
+לבנייה מקומית ב-Android Studio הרץ קודם (Python 3.11):
+```
+pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+pip install transformers==4.46.3 optimum==1.23.3 onnx==1.17.0 onnxruntime==1.20.1 sentencepiece==0.2.0 "huggingface_hub<0.27" "numpy<2.1"
+python tools/prepare_model.py app/src/main/assets/translator build-model/work build-model/reference.tsv
+```

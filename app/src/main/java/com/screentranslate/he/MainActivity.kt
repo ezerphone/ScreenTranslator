@@ -9,8 +9,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.widget.Button
-import android.widget.RadioGroup
+import android.view.View
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -19,15 +19,10 @@ import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
 
+    private lateinit var bubbleSwitch: Switch
+    private lateinit var toggleState: TextView
     private lateinit var statusText: TextView
-
-    private val scriptIds = mapOf(
-        Script.LATIN to R.id.scriptLatin,
-        Script.CHINESE to R.id.scriptChinese,
-        Script.JAPANESE to R.id.scriptJapanese,
-        Script.KOREAN to R.id.scriptKorean,
-        Script.DEVANAGARI to R.id.scriptDevanagari,
-    )
+    private var updatingSwitch = false
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -42,10 +37,12 @@ class MainActivity : ComponentActivity() {
                     putExtra(ScreenTranslateService.EXTRA_RESULT_DATA, data)
                 }
                 ContextCompat.startForegroundService(this, intent)
-                Toast.makeText(this, "הבועה פעילה – עבור לאפליקציה שתרצה לתרגם", Toast.LENGTH_LONG).show()
+                setSwitch(true)
+                Toast.makeText(this, "הכפתור פעיל – עבור לאפליקציה שתרצה לתרגם", Toast.LENGTH_LONG).show()
                 moveTaskToBack(true)
             } else {
-                Toast.makeText(this, "צריך לאשר הקלטת מסך כדי לתרגם", Toast.LENGTH_LONG).show()
+                setSwitch(false)
+                Toast.makeText(this, "צריך לאשר צילום מסך כדי לתרגם", Toast.LENGTH_LONG).show()
             }
         }
 
@@ -53,22 +50,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        bubbleSwitch = findViewById(R.id.bubbleSwitch)
+        toggleState = findViewById(R.id.toggleState)
         statusText = findViewById(R.id.statusText)
 
-        val group = findViewById<RadioGroup>(R.id.scriptGroup)
-        group.check(scriptIds.getValue(Prefs.getScript(this)))
-        group.setOnCheckedChangeListener { _, checkedId ->
-            scriptIds.entries.firstOrNull { it.value == checkedId }?.let { Prefs.setScript(this, it.key) }
+        bubbleSwitch.setOnCheckedChangeListener { _, checked ->
+            if (updatingSwitch) return@setOnCheckedChangeListener
+            if (checked) start() else stop()
         }
-
-        findViewById<Button>(R.id.startButton).setOnClickListener { start() }
-        findViewById<Button>(R.id.stopButton).setOnClickListener {
-            startService(
-                Intent(this, ScreenTranslateService::class.java)
-                    .setAction(ScreenTranslateService.ACTION_STOP)
-            )
-            statusText.postDelayed({ updateStatus() }, 300)
-        }
+        findViewById<View>(R.id.toggleRow).setOnClickListener { bubbleSwitch.toggle() }
 
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
@@ -80,14 +70,32 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        updateStatus()
+        refresh()
+    }
+
+    private fun setSwitch(on: Boolean) {
+        updatingSwitch = true
+        bubbleSwitch.isChecked = on
+        updatingSwitch = false
+        toggleState.text = if (on) "פעיל" else "כבוי"
+    }
+
+    private fun refresh() {
+        setSwitch(ScreenTranslateService.isRunning)
+        if (!Settings.canDrawOverlays(this)) {
+            statusText.visibility = View.VISIBLE
+            statusText.text = "צריך לאשר \"הצגה מעל אפליקציות אחרות\" – זה יתבקש כשתפעיל"
+        } else {
+            statusText.visibility = View.GONE
+        }
     }
 
     private fun start() {
         if (!Settings.canDrawOverlays(this)) {
+            setSwitch(false)
             Toast.makeText(
                 this,
-                "אפשר ל\"מתרגם מסך\" להציג מעל אפליקציות אחרות, ואז חזור ולחץ שוב הפעל",
+                "אפשר ל\"מתרגם מסך\" להציג מעל אפליקציות אחרות, ואז חזור והפעל שוב",
                 Toast.LENGTH_LONG
             ).show()
             startActivity(
@@ -99,11 +107,11 @@ class MainActivity : ComponentActivity() {
         screenCapture.launch(mpm.createScreenCaptureIntent())
     }
 
-    private fun updateStatus() {
-        statusText.text = when {
-            !Settings.canDrawOverlays(this) -> "חסרה הרשאה: הצגה מעל אפליקציות אחרות"
-            ScreenTranslateService.isRunning -> "● הבועה פעילה"
-            else -> "הבועה כבויה"
-        }
+    private fun stop() {
+        startService(
+            Intent(this, ScreenTranslateService::class.java)
+                .setAction(ScreenTranslateService.ACTION_STOP)
+        )
+        setSwitch(false)
     }
 }

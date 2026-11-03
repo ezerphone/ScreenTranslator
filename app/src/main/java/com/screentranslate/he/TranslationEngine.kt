@@ -1,25 +1,16 @@
 package com.screentranslate.he
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Rect
-import com.google.mlkit.common.model.RemoteModelManager
-import com.google.mlkit.nl.languageid.LanguageIdentification
-import com.google.mlkit.nl.languageid.LanguageIdentificationOptions
-import com.google.mlkit.nl.languageid.LanguageIdentifier
-import com.google.mlkit.nl.translate.TranslateLanguage
-import com.google.mlkit.nl.translate.TranslateRemoteModel
-import com.google.mlkit.nl.translate.Translation
-import com.google.mlkit.nl.translate.Translator
-import com.google.mlkit.nl.translate.TranslatorOptions
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.TextRecognizer
-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
-import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
-import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
-import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.screentranslate.translator.MarianTranslator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import java.io.File
 
 data class TranslatedBlock(
     val rect: Rect,
@@ -29,111 +20,98 @@ data class TranslatedBlock(
 )
 
 /**
- * Screenshot -> OCR -> language detection -> on-device translation to Hebrew.
- * Must be used from the main thread (ML Kit callbacks and the caches are not synchronized).
+ * Screenshot -> OCR (ML Kit, Latin) -> English->Hebrew translation (bundled model).
+ * Everything runs on the phone; no internet is used.
+ * Call from the main thread; heavy work is moved to background dispatchers.
  */
-class TranslationEngine {
+class TranslationEngine(private val context: Context) {
 
-    private val languageId: LanguageIdentifier = LanguageIdentification.getClient(
-        LanguageIdentificationOptions.Builder().setConfidenceThreshold(0.4f).build()
-    )
-    private val modelManager = RemoteModelManager.getInstance()
-    private val translators = HashMap<String, Translator>()
-    private val readyModels = HashSet<String>()
+    private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    private var translator: MarianTranslator? = null
 
-    private var recognizer: TextRecognizer? = null
-    private var recognizerScript: Script? = null
+    private val cache = object : LinkedHashMap<String, String>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?) = size > 300
+    }
 
-    private fun recognizerFor(script: Script): TextRecognizer {
-        recognizer?.let { if (recognizerScript == script) return it }
-        recognizer?.close()
-        val created = when (script) {
-            Script.LATIN -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            Script.CHINESE -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
-            Script.JAPANESE -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
-            Script.KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
-            Script.DEVANAGARI -> TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
+    private suspend fun translator(onStatus: (String) -> Unit): MarianTranslator {
+        translator?.let { return it }
+        if (!ModelFiles.isInstalled(context)) onStatus("מכין את מנוע התרגום (פעם אחת בלבד)…")
+        val created = withContext(Dispatchers.IO) {
+            MarianTranslator(ModelFiles.ensureInstalled(context))
         }
-        recognizer = created
-        recognizerScript = script
+        translator = created
         return created
     }
 
-    /** Language to assume when detection fails, based on the chosen script. */
-    private fun fallbackLanguage(script: Script): String = when (script) {
-        Script.LATIN -> TranslateLanguage.ENGLISH
-        Script.CHINESE -> TranslateLanguage.CHINESE
-        Script.JAPANESE -> TranslateLanguage.JAPANESE
-        Script.KOREAN -> TranslateLanguage.KOREAN
-        Script.DEVANAGARI -> TranslateLanguage.HINDI
-    }
-
-    private suspend fun detect(text: String): String? {
-        val tag = languageId.identifyLanguage(text).await()
-        if (tag == LanguageIdentifier.UNDETERMINED_LANGUAGE_TAG) return null
-        if (tag == "iw") return TranslateLanguage.HEBREW
-        return TranslateLanguage.fromLanguageTag(tag)
-    }
-
-    suspend fun process(
-        bitmap: Bitmap,
-        script: Script,
-        onStatus: (String) -> Unit,
-    ): List<TranslatedBlock> {
-        val result = recognizerFor(script).process(InputImage.fromBitmap(bitmap, 0)).await()
-        val joiner = if (script == Script.CHINESE || script == Script.JAPANESE) "" else " "
+    suspend fun process(bitmap: Bitmap, onStatus: (String) -> Unit): List<TranslatedBlock> {
+        val result = recognizer.process(InputImage.fromBitmap(bitmap, 0)).await()
 
         class Found(val box: Rect, val lines: Int, val text: String)
 
         val blocks = result.textBlocks.mapNotNull { block ->
             val box = block.boundingBox ?: return@mapNotNull null
             // OCR breaks sentences into lines; rejoin them so the translator sees whole sentences.
-            val text = block.lines.joinToString(joiner) { it.text.trim() }.trim()
-            if (text.none { it.isLetter() }) null else Found(box, block.lines.size, text)
+            val text = block.lines.joinToString(" ") { it.text.trim() }.trim()
+            if (text.count { it.isLetter() } < 2) null else Found(box, block.lines.size, text)
         }
         if (blocks.isEmpty()) return emptyList()
 
-        val pageLanguage = detect(blocks.joinToString("\n") { it.text }) ?: fallbackLanguage(script)
-
-        val out = ArrayList<TranslatedBlock>(blocks.size)
-        for (found in blocks) {
-            val text = found.text
-            // Short snippets ("OK", "Menu") are detected unreliably, so they inherit the page language.
-            val language = if (text.length >= 20) detect(text) ?: pageLanguage else pageLanguage
-            if (language == TranslateLanguage.HEBREW) continue // already Hebrew
-            val translated = translatorFor(language, onStatus).translate(text).await()
-            out += TranslatedBlock(found.box, found.lines, text, translated)
+        val engine = translator(onStatus)
+        return withContext(Dispatchers.Default) {
+            blocks.map { found ->
+                val translated = cache.getOrPut(found.text) {
+                    engine.translate(prepare(found.text)).ifEmpty { found.text }
+                }
+                TranslatedBlock(found.box, found.lines, found.text, translated)
+            }
         }
-        return out
     }
 
-    private suspend fun translatorFor(source: String, onStatus: (String) -> Unit): Translator {
-        val translator = translators.getOrPut(source) {
-            Translation.getClient(
-                TranslatorOptions.Builder()
-                    .setSourceLanguage(source)
-                    .setTargetLanguage(TranslateLanguage.HEBREW)
-                    .build()
-            )
+    /** "SERVICE UPDATE" translates poorly; "Service update" translates well. */
+    private fun prepare(text: String): String {
+        val letters = text.filter { it.isLetter() }
+        if (letters.length > 3 && letters.all { it.isUpperCase() }) {
+            val lower = text.lowercase()
+            return lower.replaceFirstChar { it.uppercase() }
         }
-        if (source !in readyModels) {
-            val sourceReady = modelManager.isModelDownloaded(TranslateRemoteModel.Builder(source).build()).await()
-            val hebrewReady = modelManager.isModelDownloaded(
-                TranslateRemoteModel.Builder(TranslateLanguage.HEBREW).build()
-            ).await()
-            if (!sourceReady || !hebrewReady) {
-                onStatus("מוריד מודל תרגום (פעם אחת בלבד)…")
-            }
-            translator.downloadModelIfNeeded().await()
-            readyModels += source
-        }
-        return translator
+        return text
     }
 
     fun close() {
-        recognizer?.close()
-        languageId.close()
-        translators.values.forEach { it.close() }
-        translators.clear()
+        recognizer.close()
+        translator?.close()
+        translator = null
+    }
+}
+
+/** Copies the bundled model from the APK to internal storage once (ONNX Runtime needs real files). */
+object ModelFiles {
+    private const val ASSET_DIR = "translator"
+
+    private fun targetDir(context: Context): File {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        return File(context.filesDir, "model-${info.lastUpdateTime}")
+    }
+
+    fun isInstalled(context: Context) = File(targetDir(context), ".complete").exists()
+
+    fun ensureInstalled(context: Context): File {
+        val dir = targetDir(context)
+        if (File(dir, ".complete").exists()) return dir
+
+        // Remove copies from older app versions.
+        context.filesDir.listFiles()?.filter { it.name.startsWith("model-") }?.forEach { it.deleteRecursively() }
+
+        val tmp = File(context.filesDir, "model-tmp").apply { deleteRecursively(); mkdirs() }
+        val names = context.assets.list(ASSET_DIR).orEmpty()
+        check(names.isNotEmpty()) { "מודל התרגום חסר באפליקציה" }
+        for (name in names) {
+            context.assets.open("$ASSET_DIR/$name").use { input ->
+                File(tmp, name).outputStream().use { input.copyTo(it, 1 shl 16) }
+            }
+        }
+        File(tmp, ".complete").writeText("ok")
+        check(tmp.renameTo(dir)) { "Could not install the translation model" }
+        return dir
     }
 }

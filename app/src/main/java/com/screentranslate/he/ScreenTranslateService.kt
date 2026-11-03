@@ -14,7 +14,6 @@ import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -39,6 +38,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -57,6 +57,7 @@ import kotlin.math.hypot
 class ScreenTranslateService : Service() {
 
     companion object {
+        private const val BRAND = 0xFF0B7A5C.toInt()
         const val ACTION_START = "com.screentranslate.he.START"
         const val ACTION_STOP = "com.screentranslate.he.STOP"
         const val EXTRA_RESULT_CODE = "result_code"
@@ -171,7 +172,7 @@ class ScreenTranslateService : Service() {
     private fun startForegroundWithNotification() {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "בועת תרגום", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel(CHANNEL_ID, "כפתור תרגום", NotificationManager.IMPORTANCE_LOW)
         )
         val stopIntent = PendingIntent.getService(
             this, 1,
@@ -186,7 +187,7 @@ class ScreenTranslateService : Service() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_translate)
             .setContentTitle("מתרגם המסך פעיל")
-            .setContentText("לחץ על הבועה כדי לתרגם את המסך לעברית")
+            .setContentText("הקש על \"תרגם\" כדי לתרגם את המסך לעברית")
             .setOngoing(true)
             .setContentIntent(openIntent)
             .addAction(0, "עצור", stopIntent)
@@ -337,13 +338,11 @@ class ScreenTranslateService : Service() {
                     return@launch
                 }
                 setBubbleBusy(true)
-                val translator = engine ?: TranslationEngine().also { engine = it }
-                val blocks = translator.process(bitmap, Prefs.getScript(this@ScreenTranslateService)) {
-                    toast(it)
-                }
+                val translator = engine ?: TranslationEngine(applicationContext).also { engine = it }
+                val blocks = translator.process(bitmap) { toast(it) }
                 bitmap.recycle()
                 if (blocks.isEmpty()) {
-                    toast("לא נמצא טקסט על המסך. אם הכתב אינו לטיני, בחר את סוג הכתב באפליקציה.")
+                    toast("לא נמצא טקסט באנגלית על המסך")
                 } else {
                     showOverlay(blocks)
                 }
@@ -364,32 +363,42 @@ class ScreenTranslateService : Service() {
     private fun overlayFlags() =
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
 
+    /** Design C: a teal pill with the translate icon and the word "תרגם". */
     private fun showBubble() {
         if (bubble != null) return
         val density = resources.displayMetrics.density
-        val size = (56 * density).toInt()
-        val view = TextView(uiContext).apply {
-            text = "文A"
-            setTextColor(Color.WHITE)
-            textSize = 17f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(0xFF1A73E8.toInt())
-                setStroke((2 * density).toInt(), Color.WHITE)
-            }
+        val icon = ContextCompat.getDrawable(uiContext, R.drawable.ic_translate)?.mutate()?.apply {
+            val s = (22 * density).toInt()
+            setBounds(0, 0, s, s)
         }
-        val (screenWidth, screenHeight) = screenSize()
+        val view = TextView(uiContext).apply {
+            text = "תרגם"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            gravity = Gravity.CENTER
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setCompoundDrawablesRelative(icon, null, null, null)
+            compoundDrawablePadding = (8 * density).toInt()
+            setPadding((14 * density).toInt(), 0, (18 * density).toInt(), 0)
+            minHeight = (52 * density).toInt()
+            background = GradientDrawable().apply {
+                setColor(BRAND)
+                cornerRadius = 26 * density
+            }
+            elevation = 6 * density
+        }
+        val (_, screenHeight) = screenSize()
         val params = WindowManager.LayoutParams(
-            size, size,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            (52 * density).toInt(),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             overlayFlags(),
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.LEFT
-            x = screenWidth - size - (8 * density).toInt()
-            y = (screenHeight * 0.35f).toInt()
+            // Anchored to the right edge: x is the distance from the right.
+            gravity = Gravity.TOP or Gravity.RIGHT
+            x = (14 * density).toInt()
+            y = (screenHeight * 0.4f).toInt()
         }
         view.setOnTouchListener(BubbleTouchListener())
         windowManager.addView(view, params)
@@ -399,7 +408,7 @@ class ScreenTranslateService : Service() {
 
     private fun setBubbleBusy(isBusy: Boolean) {
         bubble?.apply {
-            text = if (isBusy) "…" else "文A"
+            text = if (isBusy) "מתרגם…" else "תרגם"
             alpha = if (isBusy) 0.75f else 1f
         }
     }
@@ -441,7 +450,7 @@ class ScreenTranslateService : Service() {
                         mainHandler.removeCallbacks(longPress)
                     }
                     if (dragging) {
-                        params.x = startX + dx.toInt()
+                        params.x = startX - dx.toInt() // anchored right: moving right shrinks x
                         params.y = startY + dy.toInt()
                         runCatching { windowManager.updateViewLayout(v, params) }
                     }

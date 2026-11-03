@@ -2,7 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FFF7F8FA"
+    android:background="@color/screen"
     android:fitsSystemWindows="true"
     android:layoutDirection="rtl">
 
@@ -10,109 +10,219 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:padding="20dp">
 
+        <!-- Header card -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_header"
+            android:orientation="vertical"
+            android:padding="22dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <FrameLayout
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:background="@drawable/bg_icon_circle">
+
+                    <ImageView
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:layout_gravity="center"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/ic_translate"
+                        android:tint="@color/brand" />
+                </FrameLayout>
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="מתרגם מסך"
+                        android:textColor="#FFFFFF"
+                        android:textSize="23sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="כל מה שעל המסך – בעברית"
+                        android:textColor="#D6F0E6"
+                        android:textSize="14sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/toggleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/bg_row"
+                android:gravity="center_vertical"
+                android:minHeight="56dp"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="12dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="כפתור תרגום"
+                    android:textColor="@color/ink"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/toggleState"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="10dp"
+                    android:text="כבוי"
+                    android:textColor="@color/ink_soft"
+                    android:textSize="13sp" />
+
+                <Switch
+                    android:id="@+id/bubbleSwitch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:contentDescription="הפעל כפתור תרגום"
+                    android:thumbTint="#FFFFFF"
+                    android:trackTint="@color/switch_track"
+                    android:trackTintMode="src_over" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Languages -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="מתרגם מסך"
-            android:textColor="#FF1F1F1F"
-            android:textSize="30sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:lineSpacingExtra="4dp"
-            android:text="מפעילים, עוברים לכל אפליקציה, ולוחצים על הבועה הכחולה. הטקסט שעל המסך יתורגם לעברית ויוצג במקום המקורי."
-            android:textColor="#FF5F6368"
+            android:layout_marginStart="4dp"
+            android:layout_marginTop="22dp"
+            android:text="שפות התרגום"
+            android:textColor="@color/ink"
             android:textSize="16sp" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:text="סוג הכתב שעל המסך"
-            android:textColor="#FF1F1F1F"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <RadioGroup
-            android:id="@+id/scriptGroup"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp">
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-            <RadioButton
-                android:id="@+id/scriptLatin"
-                android:layout_width="match_parent"
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="64dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_lang_source"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="אנגלית"
+                    android:textColor="@color/ink"
+                    android:textSize="15sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="מה שעל המסך"
+                    android:textColor="#3F5D55"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="לטיני – אנגלית, ספרדית, צרפתית, גרמנית, איטלקית, טורקית ועוד"
-                android:textSize="16sp" />
+                android:layout_marginStart="10dp"
+                android:layout_marginEnd="10dp"
+                android:importantForAccessibility="no"
+                android:text="←"
+                android:textColor="@color/brand"
+                android:textSize="22sp" />
 
-            <RadioButton
-                android:id="@+id/scriptChinese"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="סינית"
-                android:textSize="16sp" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="64dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_lang_target"
+                android:gravity="center"
+                android:orientation="vertical">
 
-            <RadioButton
-                android:id="@+id/scriptJapanese"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="יפנית"
-                android:textSize="16sp" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="עברית"
+                    android:textColor="@color/ink"
+                    android:textSize="15sp" />
 
-            <RadioButton
-                android:id="@+id/scriptKorean"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="קוריאנית"
-                android:textSize="16sp" />
-
-            <RadioButton
-                android:id="@+id/scriptDevanagari"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="דוונאגרי – הינדי, מראטהי, נפאלית"
-                android:textSize="16sp" />
-        </RadioGroup>
-
-        <Button
-            android:id="@+id/startButton"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:layout_marginTop="28dp"
-            android:backgroundTint="@color/brand"
-            android:text="הפעל בועת תרגום"
-            android:textColor="#FFFFFFFF"
-            android:textSize="17sp" />
-
-        <Button
-            android:id="@+id/stopButton"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:layout_marginTop="8dp"
-            android:text="עצור"
-            android:textSize="17sp" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="התרגום"
+                    android:textColor="#3F5D55"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
 
         <TextView
             android:id="@+id/statusText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:textColor="#FF1A73E8"
-            android:textSize="15sp" />
+            android:layout_marginStart="4dp"
+            android:layout_marginTop="14dp"
+            android:textColor="@color/brand"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
+        <!-- Offline banner -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:background="@drawable/bg_offline"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="14dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="14dp">
+
+            <ImageView
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_wifi_off" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:text="עובד גם בלי אינטרנט – מנוע התרגום מובנה באפליקציה"
+                android:textColor="#5C3D00"
+                android:textSize="14sp" />
+        </LinearLayout>
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:lineSpacingExtra="4dp"
-            android:text="• בחלון האישור של אנדרואיד בחר &quot;כל המסך&quot; (לא אפליקציה אחת)\n• לחיצה על הבועה – תרגום המסך\n• גרירה – הזזת הבועה\n• לחיצה ארוכה על הבועה – כיבוי\n• לחיצה על המסך המתורגם – סגירת התרגום\n• לחיצה ארוכה על תרגום – העתקה\n\nבפעם הראשונה בכל שפה יורד מודל תרגום (כ-30MB), ואחר כך התרגום עובד גם בלי אינטרנט."
-            android:textColor="#FF5F6368"
-            android:textSize="14sp" />
+            android:layout_marginStart="4dp"
+            android:layout_marginTop="20dp"
+            android:lineSpacingExtra="5dp"
+            android:text="• בחלון האישור של אנדרואיד בחר &quot;כל המסך&quot;\n• הקשה על &quot;תרגם&quot; – תרגום המסך\n• גרירה – הזזת הכפתור · לחיצה ארוכה – כיבוי\n• לחיצה ארוכה על תרגום – העתקה"
+            android:textColor="@color/ink_soft"
+            android:textSize="13sp" />
     </LinearLayout>
 </ScrollView>
