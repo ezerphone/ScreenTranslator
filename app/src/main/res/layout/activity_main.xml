@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFF7F8FA"
+    android:fitsSystemWindows="true"
+    android:layoutDirection="rtl">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="מתרגם מסך"
+            android:textColor="#FF1F1F1F"
+            android:textSize="30sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:lineSpacingExtra="4dp"
+            android:text="מפעילים, עוברים לכל אפליקציה, ולוחצים על הבועה הכחולה. הטקסט שעל המסך יתורגם לעברית ויוצג במקום המקורי."
+            android:textColor="#FF5F6368"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:text="סוג הכתב שעל המסך"
+            android:textColor="#FF1F1F1F"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/scriptGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp">
+
+            <RadioButton
+                android:id="@+id/scriptLatin"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="לטיני – אנגלית, ספרדית, צרפתית, גרמנית, איטלקית, טורקית ועוד"
+                android:textSize="16sp" />
+
+            <RadioButton
+                android:id="@+id/scriptChinese"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="סינית"
+                android:textSize="16sp" />
+
+            <RadioButton
+                android:id="@+id/scriptJapanese"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="יפנית"
+                android:textSize="16sp" />
+
+            <RadioButton
+                android:id="@+id/scriptKorean"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="קוריאנית"
+                android:textSize="16sp" />
+
+            <RadioButton
+                android:id="@+id/scriptDevanagari"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="דוונאגרי – הינדי, מראטהי, נפאלית"
+                android:textSize="16sp" />
+        </RadioGroup>
+
+        <Button
+            android:id="@+id/startButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="28dp"
+            android:backgroundTint="@color/brand"
+            android:text="הפעל בועת תרגום"
+            android:textColor="#FFFFFFFF"
+            android:textSize="17sp" />
+
+        <Button
+            android:id="@+id/stopButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="8dp"
+            android:text="עצור"
+            android:textSize="17sp" />
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textColor="#FF1A73E8"
+            android:textSize="15sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:lineSpacingExtra="4dp"
+            android:text="• בחלון האישור של אנדרואיד בחר &quot;כל המסך&quot; (לא אפליקציה אחת)\n• לחיצה על הבועה – תרגום המסך\n• גרירה – הזזת הבועה\n• לחיצה ארוכה על הבועה – כיבוי\n• לחיצה על המסך המתורגם – סגירת התרגום\n• לחיצה ארוכה על תרגום – העתקה\n\nבפעם הראשונה בכל שפה יורד מודל תרגום (כ-30MB), ואחר כך התרגום עובד גם בלי אינטרנט."
+            android:textColor="#FF5F6368"
+            android:textSize="14sp" />
+    </LinearLayout>
+</ScrollView>
