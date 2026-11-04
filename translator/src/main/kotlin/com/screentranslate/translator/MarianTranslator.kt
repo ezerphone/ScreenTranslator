@@ -3,33 +3,41 @@ package com.screentranslate.translator
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
-import java.io.File
+import java.nio.FloatBuffer
 import java.nio.LongBuffer
 import java.util.Properties
 
 /**
  * Offline Marian (OPUS-MT) translator running on ONNX Runtime.
  *
- * Expects in [modelDir]: encoder.onnx, decoder.onnx, decoder_past.onnx (optimum export,
- * int8-quantized), source.tsv, vocab.tsv and config.properties — see tools/prepare_model.py.
- * Uses greedy decoding with a key/value cache.
+ * Expects from [source]: encoder.onnx, decoder.onnx (optimum's merged decoder, which handles the
+ * first step and the cached steps in one file), source.tsv, vocab.tsv, target_vocab.tsv and
+ * config.properties — see tools/prepare_model.py. Uses greedy decoding with a key/value cache.
+ * Not thread-safe: use one thread at a time.
  */
-class MarianTranslator(modelDir: File, intraOpThreads: Int = 0) : AutoCloseable {
+class MarianTranslator(source: ModelSource, intraOpThreads: Int = 0) : AutoCloseable {
 
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
 
-    private val config = Properties().apply {
-        File(modelDir, "config.properties").inputStream().use { load(it) }
-    }
-    private val padId = config.getProperty("pad_id").trim().toInt()
-    private val eosId = config.getProperty("eos_id").trim().toInt()
-    private val unkId = config.getProperty("unk_id").trim().toInt()
-    private val decoderStartId = config.getProperty("decoder_start_id").trim().toInt()
+    private val config = Properties().apply { source.open("config.properties").use { load(it) } }
+    private fun int(key: String) = config.getProperty(key).trim().toInt()
+
+    private val padId = int("pad_id")
+    private val eosId = int("eos_id")
+    private val unkId = int("unk_id")
+    private val decoderStartId = int("decoder_start_id")
+    private val layers = int("decoder_layers")
+    private val heads = int("decoder_heads")
+    private val headDim = int("d_model") / heads
     private val maxLength = config.getProperty("max_length", "512").trim().toInt()
 
+    /** Language the model writes ("he", "en"). */
+    val target: String = config.getProperty("target", "he").trim()
+
     val tokenizer = SentencePieceTokenizer(
-        File(modelDir, "source.tsv"),
-        File(modelDir, "vocab.tsv"),
+        source.open("source.tsv"),
+        source.open("vocab.tsv"),
+        source.open("target_vocab.tsv"),
         unkId = unkId,
         eosId = eosId,
         padId = padId,
@@ -39,9 +47,14 @@ class MarianTranslator(modelDir: File, intraOpThreads: Int = 0) : AutoCloseable 
         setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
         if (intraOpThreads > 0) setIntraOpNumThreads(intraOpThreads)
     }
-    private val encoder = env.createSession(File(modelDir, "encoder.onnx").path, options)
-    private val decoder = env.createSession(File(modelDir, "decoder.onnx").path, options)
-    private val decoderPast = env.createSession(File(modelDir, "decoder_past.onnx").path, options)
+    private val encoder = env.createSession(source.map("encoder.onnx"), options)
+    private val decoder = env.createSession(source.map("decoder.onnx"), options)
+
+    private val pastNames: List<String> = (0 until layers).flatMap { i ->
+        listOf("decoder", "encoder").flatMap { kind ->
+            listOf("key", "value").map { "past_key_values.$i.$kind.$it" }
+        }
+    }.filter { it in decoder.inputNames }
 
     private fun longTensor(values: LongArray, shape: LongArray): OnnxTensor =
         OnnxTensor.createTensor(env, LongBuffer.wrap(values), shape)
@@ -56,6 +69,13 @@ class MarianTranslator(modelDir: File, intraOpThreads: Int = 0) : AutoCloseable 
 
         val inputIds = longTensor(LongArray(n) { ids[it].toLong() }, longArrayOf(1, n.toLong()))
         val mask = longTensor(LongArray(n) { 1L }, longArrayOf(1, n.toLong()))
+        // First step: no cache yet. The merged decoder still wants the past inputs, so pass empty ones.
+        val emptyPast = OnnxTensor.createTensor(
+            env, FloatBuffer.allocate(0), longArrayOf(1, heads.toLong(), 0, headDim.toLong())
+        )
+        val noCache = OnnxTensor.createTensor(env, booleanArrayOf(false))
+        val withCache = OnnxTensor.createTensor(env, booleanArrayOf(true))
+
         var encoderResult: OrtSession.Result? = null
         var firstResult: OrtSession.Result? = null // holds the cross-attention cache
         var lastResult: OrtSession.Result? = null  // holds the self-attention cache
@@ -65,50 +85,40 @@ class MarianTranslator(modelDir: File, intraOpThreads: Int = 0) : AutoCloseable 
             encoderResult = encoder.run(mapOf("input_ids" to inputIds, "attention_mask" to mask))
             val hidden = encoderResult.get("last_hidden_state").get() as OnnxTensor
 
-            val encoderPast = HashMap<String, OnnxTensor>()
-            var decoderPastValues: Map<String, OnnxTensor> = emptyMap()
+            val past = HashMap<String, OnnxTensor>()
+            pastNames.forEach { past[it] = emptyPast }
             var token = decoderStartId
 
             for (step in 0 until maxNewTokens) {
-                val session = if (step == 0) decoder else decoderPast
                 val tokenTensor = longTensor(longArrayOf(token.toLong()), longArrayOf(1, 1))
-
-                val candidates = HashMap<String, OnnxTensor>()
+                val candidates = HashMap<String, OnnxTensor>(past)
                 candidates["input_ids"] = tokenTensor
                 candidates["encoder_attention_mask"] = mask
                 candidates["encoder_hidden_states"] = hidden
-                candidates.putAll(encoderPast)
-                candidates.putAll(decoderPastValues)
-                val wanted = session.inputNames
-                val inputs = candidates.filterKeys { it in wanted }
+                candidates["use_cache_branch"] = if (step == 0) noCache else withCache
+                val wanted = decoder.inputNames
 
                 val result = try {
-                    session.run(inputs)
+                    decoder.run(candidates.filterKeys { it in wanted })
                 } finally {
                     tokenTensor.close()
                 }
 
                 val next = argmaxLastPosition(result.get("logits").get() as OnnxTensor)
 
-                val newDecoderPast = HashMap<String, OnnxTensor>()
                 for (entry in result) {
                     val name = entry.key
                     if (!name.startsWith("present")) continue
                     val pastName = "past_key_values" + name.removePrefix("present")
-                    val value = entry.value as OnnxTensor
-                    if (name.contains(".encoder.")) {
-                        if (step == 0) encoderPast[pastName] = value
-                    } else {
-                        newDecoderPast[pastName] = value
-                    }
+                    // The cross-attention cache is computed once, on the first step.
+                    if (name.contains(".encoder.") && step > 0) continue
+                    past[pastName] = entry.value as OnnxTensor
                 }
-                decoderPastValues = newDecoderPast
 
                 if (step == 0) {
                     firstResult = result
-                } else {
-                    // The previous step's cache is no longer referenced.
-                    if (lastResult != null && lastResult !== firstResult) lastResult.close()
+                } else if (lastResult != null && lastResult !== firstResult) {
+                    lastResult.close() // the previous step's cache is no longer referenced
                 }
                 lastResult = result
 
@@ -122,6 +132,9 @@ class MarianTranslator(modelDir: File, intraOpThreads: Int = 0) : AutoCloseable 
             encoderResult?.close()
             inputIds.close()
             mask.close()
+            emptyPast.close()
+            noCache.close()
+            withCache.close()
         }
         return tokenizer.decode(output)
     }
@@ -148,7 +161,6 @@ class MarianTranslator(modelDir: File, intraOpThreads: Int = 0) : AutoCloseable 
     override fun close() {
         encoder.close()
         decoder.close()
-        decoderPast.close()
         options.close()
     }
 }

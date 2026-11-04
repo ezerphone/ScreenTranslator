@@ -28,8 +28,8 @@ dependencies {
 
 tasks.test {
     systemProperty("modelDir", providers.gradleProperty("modelDir").getOrElse(""))
-    systemProperty("referenceFile", providers.gradleProperty("referenceFile").getOrElse(""))
-    maxHeapSize = "2g"
+    systemProperty("referenceDir", providers.gradleProperty("referenceDir").getOrElse(""))
+    maxHeapSize = "3g"
     testLogging {
         showStandardStreams = true
         events("passed", "failed", "skipped")

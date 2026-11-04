@@ -19,22 +19,24 @@ jobs:
         with:
           path: |
             app/src/main/assets/translator
-            build-model/reference.tsv
-          key: model-en-he-${{ hashFiles('tools/prepare_model.py') }}
+            app/src/main/assets/tessdata
+            build-model
+          key: models-${{ hashFiles('tools/prepare_model.py') }}
 
       - uses: actions/setup-python@v5
         if: steps.model-cache.outputs.cache-hit != 'true'
         with:
           python-version: "3.11"
 
-      - name: Prepare English→Hebrew model (export + int8)
+      - name: Prepare translation models and OCR data
         if: steps.model-cache.outputs.cache-hit != 'true'
         run: |
           pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           pip install "transformers==4.46.3" "optimum==1.23.3" "onnx==1.17.0" "onnxruntime==1.20.1" \
                       "sentencepiece==0.2.0" "huggingface_hub<0.27" "numpy<2.1"
-          python tools/prepare_model.py app/src/main/assets/translator build-model/work build-model/reference.tsv
-          rm -rf build-model/work
+          python tools/prepare_model.py app/src/main/assets build-model-work build-model
+          rm -rf build-model-work
+          du -sh app/src/main/assets/*
 
       - uses: actions/setup-java@v4
         with:
@@ -45,11 +47,10 @@ jobs:
 
       - name: Test the translator against the reference
         run: |
-          lscpu | grep -E "Model name|Flags" | sed 's/Flags:.*\(avx512_vnni\|avx_vnni\).*/VNNI: yes/' || true
           chmod +x gradlew
           ./gradlew :translator:test --stacktrace \
             -PmodelDir="$PWD/app/src/main/assets/translator" \
-            -PreferenceFile="$PWD/build-model/reference.tsv"
+            -PreferenceDir="$PWD/build-model"
 
       - name: Build APK
         run: ./gradlew :app:assembleDebug --stacktrace
@@ -64,4 +65,4 @@ jobs:
           gh release create latest ScreenTranslator.apk \
             --target "${{ github.sha }}" \
             --title "מתרגם מסך – גרסה אחרונה" \
-            --notes "הורד את ScreenTranslator.apk והתקן בטלפון. תרגום מאנגלית לעברית, עובד בלי אינטרנט."
+            --notes "הורד את ScreenTranslator.apk והתקן בטלפון. תרגום מאנגלית, סינית וערבית לעברית, בלי אינטרנט."

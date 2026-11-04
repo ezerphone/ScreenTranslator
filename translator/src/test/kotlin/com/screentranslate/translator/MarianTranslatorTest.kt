@@ -7,31 +7,44 @@ import org.junit.Test
 import java.io.File
 
 /**
- * Runs the real model on a JVM and compares against the Python/transformers reference
+ * Runs every bundled model on a JVM and compares against the Python/transformers reference
  * produced by tools/prepare_model.py:
  *  - token ids must match exactly (tokenizer correctness)
- *  - translations are printed side by side and must contain Hebrew
+ *  - at least half of the translations must match the full-precision model exactly
+ *  - Chinese and Arabic are also run through English to Hebrew, as the app does
  */
 class MarianTranslatorTest {
 
-    @Test
-    fun translatesLikeReference() {
-        val modelDir = File(System.getProperty("modelDir").orEmpty())
-        val referenceFile = File(System.getProperty("referenceFile").orEmpty())
-        assumeTrue("model not prepared", File(modelDir, "encoder.onnx").exists() && referenceFile.exists())
+    private val modelRoot = File(System.getProperty("modelDir").orEmpty())
+    private val referenceDir = File(System.getProperty("referenceDir").orEmpty())
 
-        MarianTranslator(modelDir).use { translator ->
-            val lines = referenceFile.readLines(Charsets.UTF_8).filter { it.isNotBlank() }
-            assertTrue(lines.isNotEmpty())
+    private fun modelNames(): List<String> =
+        modelRoot.listFiles()?.filter { File(it, "config.properties").exists() }?.map { it.name }?.sorted().orEmpty()
+
+    @Test
+    fun everyModelMatchesItsReference() {
+        val names = modelNames()
+        assumeTrue("models not prepared", names.isNotEmpty())
+
+        val hebrew = MarianTranslator(DirectoryModelSource(File(modelRoot, "en-he")))
+        hebrew.use {
+            for (name in names) checkModel(name, hebrew)
+        }
+    }
+
+    private fun checkModel(name: String, hebrew: MarianTranslator) {
+        val reference = File(referenceDir, "$name.tsv")
+        assertTrue("missing reference for $name", reference.exists())
+        val translator = if (name == "en-he") hebrew else MarianTranslator(DirectoryModelSource(File(modelRoot, name)))
+        try {
+            val lines = reference.readLines(Charsets.UTF_8).filter { it.isNotBlank() }
             var exact = 0
+            println("===== $name (target: ${translator.target}) =====")
             for (line in lines) {
-                val parts = line.split('\t')
-                val sentence = parts[0]
-                val referenceIds = parts[1]
-                val referenceTranslation = parts[2]
+                val (sentence, referenceIds, referenceTranslation) = line.split('\t')
 
                 assertEquals(
-                    "token ids for: $sentence",
+                    "[$name] token ids for: $sentence",
                     referenceIds,
                     translator.tokenizer.encode(sentence).joinToString(" ")
                 )
@@ -40,12 +53,14 @@ class MarianTranslatorTest {
                 val ours = translator.translate(sentence)
                 val ms = (System.nanoTime() - start) / 1_000_000
                 if (ours == referenceTranslation) exact++
-                println("EN : $sentence\nREF: $referenceTranslation\nOUR: $ours   (${ms}ms)\n")
-                assertTrue("no Hebrew in: $ours", ours.any { it in 'א'..'ת' })
+                val toHebrew = if (translator.target == "he") "" else "\nHE : ${hebrew.translate(ours)}"
+                println("SRC: $sentence\nREF: $referenceTranslation\nOUR: $ours   (${ms}ms)$toHebrew\n")
+                assertTrue("[$name] empty translation for: $sentence", ours.isNotBlank())
             }
-            println("Exact matches with the full-precision reference: $exact / ${lines.size}")
-            // Quantization may change a word here and there, but a broken model changes everything.
-            assertTrue("translation quality dropped: only $exact exact matches", exact * 2 >= lines.size)
+            println("[$name] exact matches with the full-precision reference: $exact / ${lines.size}")
+            assertTrue("[$name] translation quality dropped: only $exact exact", exact * 2 >= lines.size)
+        } finally {
+            if (translator !== hebrew) translator.close()
         }
     }
 }
