@@ -2,24 +2,26 @@ package com.screentranslate.he
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
+import android.view.GestureDetector
+import android.view.HapticFeedbackConstants
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.TextView
-import kotlin.math.max
 
 private const val TEAL = 0xFF0B7A5C.toInt()
 private const val INK = 0xFF12302A.toInt()
 
 /**
- * Full-screen overlay (design C): each translation sits on top of the original text in a
- * white rounded card with a teal outline, plus a bottom bar with "copy all" and "close".
+ * Full-screen overlay: each translation sits on top of the original text (shrunk to fit its
+ * box, see [TranslationPainter]), plus a bottom bar with "copy all" and "close".
+ * Tap closes; long-press on a translation copies it.
  */
 @SuppressLint("ViewConstructor")
 class TranslationOverlayView(
@@ -33,7 +35,6 @@ class TranslationOverlayView(
 
     init {
         setBackgroundColor(0x40000000)
-        setOnClickListener { onDismiss() }
         addView(BlocksLayer(), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(
             makeBottomBar(),
@@ -45,9 +46,6 @@ class TranslationOverlayView(
     }
 
     private fun dp(value: Int) = (value * density).toInt()
-
-    private fun sp(value: Float) =
-        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
 
     private fun pill(fill: Int) = GradientDrawable().apply {
         setColor(fill)
@@ -82,73 +80,43 @@ class TranslationOverlayView(
         addView(close, LinearLayout.LayoutParams(0, dp(50), 1f))
     }
 
-    private fun makeLabel(block: TranslatedBlock) = TextView(context).apply {
-        text = block.translated
-        setTextColor(INK)
-        layoutDirection = View.LAYOUT_DIRECTION_RTL
-        textDirection = View.TEXT_DIRECTION_RTL
-        gravity = Gravity.CENTER_VERTICAL or Gravity.START
-        includeFontPadding = false
-        setPadding(dp(10), dp(5), dp(10), dp(5))
-        background = GradientDrawable().apply {
-            setColor(Color.WHITE)
-            cornerRadius = 14 * density
-            setStroke(max(1, (1.5f * density).toInt()), TEAL)
-        }
-        elevation = 3 * density
-        // Size the text like the original line height, but keep it readable.
-        val lineHeight = block.rect.height().toFloat() / max(block.lineCount, 1)
-        setTextSize(TypedValue.COMPLEX_UNIT_PX, (lineHeight * 0.68f).coerceIn(sp(12f), sp(24f)))
-        setOnClickListener { onDismiss() }
-        setOnLongClickListener {
-            onCopy(block.translated)
-            true
-        }
-    }
-
-    /** Places labels at the OCR boxes (screen coordinates -> this window's coordinates). */
-    private inner class BlocksLayer : ViewGroup(this@TranslationOverlayView.context) {
+    /** Draws the translations; OCR boxes are screen coordinates, shifted into this window. */
+    private inner class BlocksLayer : View(this@TranslationOverlayView.context) {
+        private val painter = TranslationPainter(
+            density,
+            TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 8f, resources.displayMetrics)
+        )
+        private var placed: List<TranslationPainter.Placed> = emptyList()
         private val screenLocation = IntArray(2)
 
-        init {
-            clipChildren = false
-            blocks.forEach { addView(makeLabel(it)) }
-        }
+        private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent) = true
 
-        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            setMeasuredDimension(
-                MeasureSpec.getSize(widthMeasureSpec),
-                MeasureSpec.getSize(heightMeasureSpec)
-            )
-            val minWidth = dp(56)
-            for (i in 0 until childCount) {
-                val rect = blocks[i].rect
-                val child = getChildAt(i)
-                val width = max(rect.width(), minWidth)
-                child.measure(
-                    MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
-                    MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
-                )
-                // At least cover the original text; grow downwards if the Hebrew needs more room.
-                if (child.measuredHeight < rect.height()) {
-                    child.measure(
-                        MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
-                        MeasureSpec.makeMeasureSpec(rect.height(), MeasureSpec.EXACTLY)
-                    )
+            override fun onSingleTapUp(e: MotionEvent): Boolean {
+                onDismiss()
+                return true
+            }
+
+            override fun onLongPress(e: MotionEvent) {
+                placed.lastOrNull { it.box.contains(e.x, e.y) }?.let {
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    onCopy(it.block.translated)
                 }
             }
+        })
+
+        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            super.onLayout(changed, left, top, right, bottom)
+            getLocationOnScreen(screenLocation)
+            placed = painter.place(
+                blocks, 1f, -screenLocation[0].toFloat(), -screenLocation[1].toFloat(), width.toFloat()
+            )
+            invalidate()
         }
 
-        override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
-            getLocationOnScreen(screenLocation)
-            for (i in 0 until childCount) {
-                val rect = blocks[i].rect
-                val child = getChildAt(i)
-                var left = rect.left - screenLocation[0]
-                val top = rect.top - screenLocation[1]
-                if (left + child.measuredWidth > width) left = max(0, width - child.measuredWidth)
-                child.layout(left, top, left + child.measuredWidth, top + child.measuredHeight)
-            }
-        }
+        override fun onDraw(canvas: Canvas) = painter.draw(canvas, placed)
+
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouchEvent(event: MotionEvent) = gestures.onTouchEvent(event)
     }
 }

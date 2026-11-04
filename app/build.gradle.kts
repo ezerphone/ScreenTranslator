@@ -11,8 +11,8 @@ android {
         applicationId = "com.screentranslate.he"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "3.0"
+        versionCode = 4
+        versionName = "4.0"
 
         // Phones only: keeps the APK smaller (the translation engine has native code).
         ndk {
@@ -29,6 +29,12 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+    }
+
+    // Models are memory-mapped straight from the APK, so they must be stored uncompressed.
+    androidResources {
+        noCompress.add("onnx")
+        noCompress.add("traineddata")
     }
 
     buildTypes {
@@ -55,8 +61,15 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
-    // On-device OCR for Latin script (bundled model, works offline)
-    implementation("com.google.mlkit:text-recognition:16.0.1")
+    // On-device OCR: ML Kit Chinese model (reads Chinese and Latin), Tesseract for Arabic
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
+
+    // In-app camera (photos stay in memory)
+    implementation("androidx.camera:camera-core:1.4.1")
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
 
     // Bundled English -> Hebrew translation (OPUS-MT on ONNX Runtime)
     implementation(project(":translator"))

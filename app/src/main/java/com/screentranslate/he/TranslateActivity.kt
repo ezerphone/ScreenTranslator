@@ -1,8 +1,10 @@
 package com.screentranslate.he
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
@@ -10,15 +12,19 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
@@ -26,12 +32,14 @@ import kotlin.math.max
 /**
  * Translation screen for:
  *  - "תרגם לעברית" in the text-selection menu of any app (ACTION_PROCESS_TEXT)
- *  - text shared to the app (ACTION_SEND text/plain)
- *  - images shared to the app (ACTION_SEND image/...), translated in place on the image
+ *  - text or images shared to the app (ACTION_SEND)
+ *  - photos from the in-app camera (ACTION_CAMERA; the photo lives only in memory)
+ * Images show the translation drawn on the image and can be saved with it.
  */
 class TranslateActivity : ComponentActivity() {
 
     companion object {
+        const val ACTION_CAMERA = "com.screentranslate.he.TRANSLATE_CAMERA"
         private const val MAX_TEXT = 6000
         private const val MAX_IMAGE_SIDE = 2400
     }
@@ -41,6 +49,16 @@ class TranslateActivity : ComponentActivity() {
     private lateinit var translatedText: TextView
     private lateinit var originalText: TextView
     private var translation = ""
+
+    private var image: Bitmap? = null
+    private var imageView: ImageTranslationView? = null
+    private var blocks: List<TranslatedBlock> = emptyList()
+    private var imageJob: Job? = null
+
+    private val storagePermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) saveImage() else toast("צריך הרשאת אחסון כדי לשמור")
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,6 +72,7 @@ class TranslateActivity : ComponentActivity() {
         findViewById<View>(R.id.closeButton).setOnClickListener { finish() }
         findViewById<Button>(R.id.copyButton).setOnClickListener { copy() }
         findViewById<Button>(R.id.shareButton).setOnClickListener { share() }
+        findViewById<Button>(R.id.saveButton).setOnClickListener { onSaveClicked() }
 
         handle(intent)
     }
@@ -78,14 +97,24 @@ class TranslateActivity : ComponentActivity() {
                 val type = intent.type.orEmpty()
                 val stream = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
                 if (type.startsWith("image/") && stream != null) {
-                    translateImage(stream)
+                    loadSharedImage(stream)
                 } else {
                     translateText(intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty())
                 }
             }
+            ACTION_CAMERA -> {
+                findViewById<View>(R.id.retakeButton).apply {
+                    visibility = View.VISIBLE
+                    setOnClickListener { finish() } // back to the camera
+                }
+                val photo = CapturedImage.take()
+                if (photo == null) showError("התמונה לא נמצאה, צלם שוב") else showImage(photo)
+            }
             else -> showError("אין מה לתרגם")
         }
     }
+
+    // ------------------------------------------------------------------ text
 
     private fun translateText(raw: String) {
         var text = raw.trim()
@@ -95,13 +124,16 @@ class TranslateActivity : ComponentActivity() {
         }
         if (text.length > MAX_TEXT) {
             text = text.substring(0, MAX_TEXT)
-            Toast.makeText(this, "הטקסט ארוך – מתורגמים רק $MAX_TEXT התווים הראשונים", Toast.LENGTH_LONG).show()
+            toast("הטקסט ארוך – מתורגמים רק $MAX_TEXT התווים הראשונים")
         }
         showOriginal(text)
+        if (Scripts.detect(text) == SourceLang.NONE) {
+            showError("לא זיהיתי טקסט באנגלית, סינית או ערבית")
+            return
+        }
         lifecycleScope.launch {
             try {
-                val result = TranslationEngine.translateText(this@TranslateActivity, text) { statusText.text = it }
-                showTranslation(result)
+                showTranslation(TranslationEngine.translateText(this@TranslateActivity, text) { statusText.text = it })
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -110,36 +142,64 @@ class TranslateActivity : ComponentActivity() {
         }
     }
 
-    private fun translateImage(uri: Uri) {
-        statusText.text = "מזהה טקסט בתמונה…"
-        lifecycleScope.launch {
-            try {
-                val bitmap = withContext(Dispatchers.IO) { decode(uri) }
-                if (bitmap == null) {
-                    showError("לא הצלחתי לפתוח את התמונה")
-                    return@launch
-                }
-                val imageView = ImageTranslationView(this@TranslateActivity).apply {
-                    this.bitmap = bitmap
-                    setOnClickListener { showTranslation = !showTranslation }
-                    contentDescription = "התמונה עם התרגום"
-                }
-                findViewById<FrameLayout>(R.id.imageHolder).apply {
-                    visibility = View.VISIBLE
-                    addView(imageView)
-                }
+    // ------------------------------------------------------------------ images
 
-                val blocks = TranslationEngine.translateImage(this@TranslateActivity, bitmap) {
+    private fun loadSharedImage(uri: Uri) {
+        statusText.text = "פותח את התמונה…"
+        lifecycleScope.launch {
+            val bitmap = withContext(Dispatchers.IO) { decode(uri) }
+            if (bitmap == null) showError("לא הצלחתי לפתוח את התמונה") else showImage(bitmap)
+        }
+    }
+
+    private fun showImage(bitmap: Bitmap) {
+        image = bitmap
+        val view = ImageTranslationView(this).apply {
+            this.bitmap = bitmap
+            setOnClickListener { showTranslation = !showTranslation }
+            contentDescription = "התמונה עם התרגום"
+        }
+        imageView = view
+        findViewById<FrameLayout>(R.id.imageHolder).apply {
+            visibility = View.VISIBLE
+            removeAllViews()
+            addView(view)
+        }
+        findViewById<View>(R.id.modeRow).visibility = View.VISIBLE
+        ModeChips(this, findViewById(R.id.modeLatin), findViewById(R.id.modeArabic)) { translateImage() }
+        translateImage()
+    }
+
+    private fun translateImage() {
+        val bitmap = image ?: return
+        imageJob?.cancel()
+        blocks = emptyList()
+        imageView?.blocks = emptyList()
+        findViewById<View>(R.id.imageHint).visibility = View.GONE
+        findViewById<View>(R.id.actions).visibility = View.GONE
+        findViewById<View>(R.id.translationCard).visibility = View.GONE
+        findViewById<View>(R.id.originalCard).visibility = View.GONE
+        progressRow.visibility = View.VISIBLE
+        (progressRow as ViewGroup).getChildAt(0).visibility = View.VISIBLE
+        statusText.text = "מזהה טקסט בתמונה…"
+
+        val mode = Prefs.ocrMode(this)
+        imageJob = lifecycleScope.launch {
+            try {
+                val found = TranslationEngine.translateImage(this@TranslateActivity, bitmap, mode) {
                     statusText.text = it
                 }
-                if (blocks.isEmpty()) {
-                    showError("לא נמצא טקסט באנגלית בתמונה")
+                if (found.isEmpty()) {
+                    val other = if (mode == OcrMode.ARABIC) OcrMode.LATIN_CHINESE else OcrMode.ARABIC
+                    showError("לא נמצא טקסט ב${mode.label}. אם הטקסט ב${other.label}, בחר אותה למעלה.")
                     return@launch
                 }
-                imageView.blocks = blocks
+                blocks = found
+                imageView?.blocks = found
                 findViewById<View>(R.id.imageHint).visibility = View.VISIBLE
-                showOriginal(blocks.joinToString("\n") { it.original })
-                showTranslation(blocks.joinToString("\n") { it.translated })
+                findViewById<View>(R.id.saveButton).visibility = View.VISIBLE
+                showOriginal(found.joinToString("\n") { it.original })
+                showTranslation(found.joinToString("\n") { it.translated })
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -171,6 +231,42 @@ class TranslateActivity : ComponentActivity() {
         null
     }
 
+    private fun onSaveClicked() {
+        if (ImageSaver.needsPermission() &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            saveImage()
+        }
+    }
+
+    private fun saveImage() {
+        val bitmap = image ?: return
+        val found = blocks
+        if (found.isEmpty()) return
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val rendered = TranslationPainter.render(bitmap, found)
+                    try {
+                        ImageSaver.save(this@TranslateActivity, rendered)
+                    } finally {
+                        rendered.recycle()
+                    }
+                }
+                toast("התמונה המתורגמת נשמרה בגלריה")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                toast("השמירה נכשלה: ${e.message ?: e.javaClass.simpleName}")
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ shared UI
+
     private fun showOriginal(text: String) {
         originalText.text = text
         findViewById<View>(R.id.originalCard).visibility = View.VISIBLE
@@ -186,14 +282,14 @@ class TranslateActivity : ComponentActivity() {
 
     private fun showError(message: String) {
         progressRow.visibility = View.VISIBLE
-        (progressRow as? android.view.ViewGroup)?.getChildAt(0)?.visibility = View.GONE // hide spinner
+        (progressRow as ViewGroup).getChildAt(0).visibility = View.GONE // hide spinner
         statusText.text = message
     }
 
     private fun copy() {
         getSystemService(ClipboardManager::class.java)
             .setPrimaryClip(ClipData.newPlainText("תרגום", translation))
-        if (Build.VERSION.SDK_INT < 33) Toast.makeText(this, "התרגום הועתק", Toast.LENGTH_SHORT).show()
+        if (Build.VERSION.SDK_INT < 33) toast("התרגום הועתק")
     }
 
     private fun share() {
@@ -202,5 +298,14 @@ class TranslateActivity : ComponentActivity() {
             putExtra(Intent.EXTRA_TEXT, translation)
         }
         startActivity(Intent.createChooser(send, "שתף תרגום"))
+    }
+
+    private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Nothing is kept: the photo exists only while this screen is open.
+        imageView?.bitmap = null
+        image = null
     }
 }

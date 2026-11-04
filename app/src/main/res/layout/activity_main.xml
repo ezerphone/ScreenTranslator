@@ -102,13 +102,40 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Languages -->
+        <!-- Camera -->
+        <LinearLayout
+            android:id="@+id/cameraButton"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/bg_pill_brand"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_camera" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:text="צלם ותרגם"
+                android:textColor="#FFFFFF"
+                android:textSize="17sp" />
+        </LinearLayout>
+
+        <!-- Language of text in photos and on screen -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="4dp"
             android:layout_marginTop="22dp"
-            android:text="שפות התרגום"
+            android:text="השפה בתמונות ובמסך"
             android:textColor="@color/ink"
             android:textSize="16sp" />
 
@@ -116,65 +143,38 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <LinearLayout
+            <Button
+                android:id="@+id/modeLatin"
                 android:layout_width="0dp"
-                android:layout_height="64dp"
+                android:layout_height="52dp"
                 android:layout_weight="1"
-                android:background="@drawable/bg_lang_source"
-                android:gravity="center"
-                android:orientation="vertical">
+                android:stateListAnimator="@null"
+                android:text="אנגלית / סינית"
+                android:textAllCaps="false"
+                android:textSize="15sp" />
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="אנגלית"
-                    android:textColor="@color/ink"
-                    android:textSize="15sp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="מה שעל המסך"
-                    android:textColor="#3F5D55"
-                    android:textSize="12sp" />
-            </LinearLayout>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+            <Button
+                android:id="@+id/modeArabic"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
                 android:layout_marginStart="10dp"
-                android:layout_marginEnd="10dp"
-                android:importantForAccessibility="no"
-                android:text="←"
-                android:textColor="@color/brand"
-                android:textSize="22sp" />
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="64dp"
                 android:layout_weight="1"
-                android:background="@drawable/bg_lang_target"
-                android:gravity="center"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="עברית"
-                    android:textColor="@color/ink"
-                    android:textSize="15sp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="התרגום"
-                    android:textColor="#3F5D55"
-                    android:textSize="12sp" />
-            </LinearLayout>
+                android:stateListAnimator="@null"
+                android:text="ערבית"
+                android:textAllCaps="false"
+                android:textSize="15sp" />
         </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginTop="8dp"
+            android:text="בטקסט מסומן או משותף השפה מזוהה לבד."
+            android:textColor="@color/ink_soft"
+            android:textSize="13sp" />
 
         <TextView
             android:id="@+id/statusText"
@@ -210,7 +210,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="12dp"
                 android:layout_weight="1"
-                android:text="עובד גם בלי אינטרנט – מנוע התרגום מובנה באפליקציה"
+                android:text="עובד בלי אינטרנט – אנגלית, סינית וערבית לעברית"
                 android:textColor="#5C3D00"
                 android:textSize="14sp" />
         </LinearLayout>
@@ -221,7 +221,7 @@
             android:layout_marginStart="4dp"
             android:layout_marginTop="20dp"
             android:lineSpacingExtra="5dp"
-            android:text="• בחלון האישור של אנדרואיד בחר &quot;כל המסך&quot;\n• הקשה על &quot;תרגם&quot; – תרגום כל המסך\n• לחיצה ארוכה על &quot;תרגם&quot; – תרגום אזור, תרגום חי, כיבוי\n• סימון טקסט בכל אפליקציה ← &quot;תרגם לעברית&quot;\n• שיתוף טקסט או תמונה ← &quot;תרגם לעברית&quot;\n• אפשר להוסיף כפתור &quot;מתרגם מסך&quot; להגדרות המהירות"
+            android:text="• בחלון האישור של אנדרואיד בחר &quot;כל המסך&quot;\n• הקשה על &quot;תרגם&quot; – תרגום כל המסך\n• לחיצה ארוכה על &quot;תרגם&quot; – תרגום אזור, תרגום חי, שפה, כיבוי\n• סימון טקסט בכל אפליקציה ← &quot;תרגם לעברית&quot;\n• שיתוף טקסט או תמונה ← &quot;תרגם לעברית&quot;\n• אפשר להוסיף כפתור &quot;מתרגם מסך&quot; להגדרות המהירות"
             android:textColor="@color/ink_soft"
             android:textSize="13sp" />
     </LinearLayout>

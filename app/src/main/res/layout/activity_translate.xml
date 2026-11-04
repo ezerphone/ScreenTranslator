@@ -24,6 +24,22 @@
             android:textColor="@color/ink"
             android:textSize="20sp" />
 
+        <Button
+            android:id="@+id/retakeButton"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_chip_off"
+            android:minWidth="0dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:stateListAnimator="@null"
+            android:text="צלם שוב"
+            android:textAllCaps="false"
+            android:textColor="@color/ink"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
         <ImageButton
             android:id="@+id/closeButton"
             android:layout_width="48dp"
@@ -69,6 +85,49 @@
                     android:textSize="15sp" />
             </LinearLayout>
 
+            <LinearLayout
+                android:id="@+id/modeRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="10dp"
+                    android:text="שפה בתמונה:"
+                    android:textColor="@color/ink_soft"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/modeLatin"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:minWidth="0dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:stateListAnimator="@null"
+                    android:text="אנגלית / סינית"
+                    android:textAllCaps="false"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/modeArabic"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="8dp"
+                    android:minWidth="0dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:stateListAnimator="@null"
+                    android:text="ערבית"
+                    android:textAllCaps="false"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
             <FrameLayout
                 android:id="@+id/imageHolder"
                 android:layout_width="match_parent"
@@ -99,7 +158,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="עברית"
+                    android:text="תרגום לעברית"
                     android:textColor="@color/brand"
                     android:textSize="13sp" />
 
@@ -129,7 +188,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="אנגלית (מקור)"
+                    android:text="המקור"
                     android:textColor="@color/ink_soft"
                     android:textSize="13sp" />
 
@@ -138,10 +197,9 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:layoutDirection="ltr"
                     android:lineSpacingExtra="3dp"
                     android:textColor="@color/ink_soft"
-                    android:textDirection="ltr"
+                    android:textDirection="firstStrong"
                     android:textIsSelectable="true"
                     android:textSize="15sp" />
             </LinearLayout>
@@ -171,6 +229,20 @@
             android:textAllCaps="false"
             android:textColor="#FFFFFF"
             android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/saveButton"
+            android:layout_width="0dp"
+            android:layout_height="50dp"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_pill_white"
+            android:stateListAnimator="@null"
+            android:text="שמור תמונה"
+            android:textAllCaps="false"
+            android:textColor="@color/ink"
+            android:textSize="15sp"
+            android:visibility="gone" />
 
         <Button
             android:id="@+id/replaceButton"

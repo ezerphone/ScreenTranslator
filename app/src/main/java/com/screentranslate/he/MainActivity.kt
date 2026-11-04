@@ -28,6 +28,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var toggleState: TextView
     private lateinit var statusText: TextView
     private var updatingSwitch = false
+    private var modeChips: ModeChips? = null
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -64,6 +65,10 @@ class MainActivity : ComponentActivity() {
             if (checked) start() else stop()
         }
         findViewById<View>(R.id.toggleRow).setOnClickListener { bubbleSwitch.toggle() }
+        findViewById<View>(R.id.cameraButton).setOnClickListener {
+            startActivity(Intent(this, CameraActivity::class.java))
+        }
+        modeChips = ModeChips(this, findViewById(R.id.modeLatin), findViewById(R.id.modeArabic))
 
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
@@ -103,6 +108,7 @@ class MainActivity : ComponentActivity() {
 
     private fun refresh() {
         setSwitch(ScreenTranslateService.isRunning)
+        modeChips?.refresh()
         if (!Settings.canDrawOverlays(this)) {
             statusText.visibility = View.VISIBLE
             statusText.text = "צריך לאשר \"הצגה מעל אפליקציות אחרות\" – זה יתבקש כשתפעיל"

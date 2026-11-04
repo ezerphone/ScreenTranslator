@@ -391,13 +391,13 @@ class ScreenTranslateService : Service() {
                     return@launch
                 }
                 val blocks = TranslationEngine.translateImage(
-                    this@ScreenTranslateService, bitmap,
+                    this@ScreenTranslateService, bitmap, Prefs.ocrMode(this@ScreenTranslateService),
                     offsetX = area?.left?.coerceAtLeast(0) ?: 0,
                     offsetY = area?.top?.coerceAtLeast(0) ?: 0,
                 ) { toast(it) }
                 bitmap.recycle()
                 if (blocks.isEmpty()) {
-                    toast("לא נמצא טקסט באנגלית")
+                    toast("לא נמצא טקסט ב${Prefs.ocrMode(this@ScreenTranslateService).label}")
                 } else {
                     showOverlay(blocks)
                 }
@@ -457,13 +457,15 @@ class ScreenTranslateService : Service() {
                     val full = withContext(Dispatchers.Default) { grabBitmap() }
                     val part = full?.let { cropAndRecycle(it, area) }
                     if (part != null) {
-                        val blocks = TranslationEngine.recognize(part)
+                        val blocks = TranslationEngine.recognize(
+                            this@ScreenTranslateService, part, Prefs.ocrMode(this@ScreenTranslateService)
+                        )
                         part.recycle()
                         val text = blocks.joinToString("\n") { it.text }
                         if (text != lastText) {
                             lastText = text
                             liveText?.text = if (text.isBlank()) {
-                                "ממתין לטקסט באנגלית…"
+                                "ממתין לטקסט…"
                             } else {
                                 TranslationEngine.translateText(this@ScreenTranslateService, text) { toast(it) }
                             }
@@ -701,6 +703,9 @@ class ScreenTranslateService : Service() {
             val lp = { LinearLayout.LayoutParams((200 * density).toInt(), itemHeight).apply { bottomMargin = gap } }
             addView(item("תרגום אזור", primary = true) { startSelection(AreaMode.TRANSLATE) }, lp())
             addView(item("תרגום חי", primary = false) { startSelection(AreaMode.LIVE) }, lp())
+            addView(item("שפה: ${Prefs.ocrMode(uiContext).label}", primary = false) {
+                toast("השפה במסך: ${Prefs.toggleOcrMode(uiContext).label}")
+            }, lp())
             addView(item("כיבוי", primary = false) {
                 toast("מתרגם המסך כובה")
                 stopSelf()
@@ -721,7 +726,7 @@ class ScreenTranslateService : Service() {
             gravity = Gravity.TOP or Gravity.RIGHT
             x = anchor?.x ?: 0
             val (_, screenH) = screenSize()
-            val menuHeight = (190 * density).toInt()
+            val menuHeight = (250 * density).toInt()
             val bubbleY = anchor?.y ?: 0
             // Below the button, or above it when near the bottom.
             y = if (bubbleY + (60 * density).toInt() + menuHeight < screenH) {
