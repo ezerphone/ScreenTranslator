@@ -1,0 +1,14 @@
+name: Compare
+on: push
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          pip install "transformers==4.46.3" "sentencepiece==0.2.0" "huggingface_hub<0.27" "numpy<2.1" sacremoses
+          python compare.py
