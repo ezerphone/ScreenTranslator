@@ -1,0 +1,63 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Arabic OCR data (Tesseract), packed in the APK.
+      - name: Restore OCR data
+        id: ocr-cache
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/tessdata
+          key: tessdata-ara-v1
+
+      - name: Download OCR data
+        if: steps.ocr-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p app/src/main/assets/tessdata
+          curl -fsSL -o app/src/main/assets/tessdata/ara.traineddata \
+            https://github.com/tesseract-ocr/tessdata/raw/main/ara.traineddata
+          du -h app/src/main/assets/tessdata/ara.traineddata
+
+      # Google's translation models (Chinese, Arabic, Hebrew) go inside the APK.
+      # Taken from language-pack/ in the repo (split into parts under git's 100MB limit:
+      # split -b 90m -d -a 2 languages.zip language-pack/languages.zip.part-).
+      - name: Bundle language pack
+        run: |
+          cat language-pack/languages.zip.part-* > app/src/main/assets/languages.zip
+          unzip -tq app/src/main/assets/languages.zip
+          du -h app/src/main/assets/languages.zip
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Publish APK as a release (direct download link)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Translate.apk
+          ls -lh Translate.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest Translate.apk \
+            --target "${{ github.sha }}" \
+            --title "תרגום – גרסה אחרונה" \
+            --notes "Translate.apk – אנגלית, סינית וערבית לעברית, בלי אינטרנט ובלי הורדות."

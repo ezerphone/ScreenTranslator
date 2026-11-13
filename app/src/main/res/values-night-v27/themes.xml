@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:colorPrimary">@color/sheet</item>
+        <item name="android:colorPrimaryDark">@color/sheet</item>
+        <item name="android:statusBarColor">@color/sheet</item>
+        <item name="android:navigationBarColor">@color/screen</item>
+        <item name="android:windowBackground">@color/screen</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

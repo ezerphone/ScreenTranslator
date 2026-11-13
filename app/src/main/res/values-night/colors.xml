@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Translate palette, dark. -->
+<resources>
+    <color name="screen">#1F1F1F</color>
+    <color name="sheet">#131313</color>
+    <color name="pill">#0E0E0E</color>
+    <color name="ink">#E3E3E3</color>
+    <color name="ink_soft">#C4C7C5</color>
+    <color name="hint">#C4C7C5</color>
+    <color name="line">#444746</color>
+    <color name="circle">#474747</color>
+    <color name="on_circle">#FFFFFF</color>
+    <color name="inverse">#FFFFFF</color>
+    <color name="on_inverse">#1F1F1F</color>
+    <color name="accent">#A8C7FA</color>
+</resources>

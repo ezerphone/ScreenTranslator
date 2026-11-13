@@ -1,0 +1,11 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+.kotlin/
+# Put together in CI: OCR data (downloaded) and the language pack (joined from language-pack/)
+app/src/main/assets/tessdata/
+app/src/main/assets/languages.zip

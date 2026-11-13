@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Google Translate palette, light (dark is in values-night). Follows the system setting. -->
+<resources>
+    <!-- Page background and the bottom panel -->
+    <color name="screen">#F0F4F9</color>
+    <!-- The text area at the top, cards and the status bar -->
+    <color name="sheet">#FFFFFF</color>
+    <!-- Language pills -->
+    <color name="pill">#FFFFFF</color>
+    <color name="ink">#1F1F1F</color>
+    <color name="ink_soft">#444746</color>
+    <color name="hint">#747775</color>
+    <color name="line">#C4C7C5</color>
+    <!-- Small round buttons (picture, camera) -->
+    <color name="circle">#DDE3EA</color>
+    <color name="on_circle">#1F1F1F</color>
+    <!-- The big round button and main actions -->
+    <color name="inverse">#1F1F1F</color>
+    <color name="on_inverse">#FFFFFF</color>
+    <!-- Translated text -->
+    <color name="accent">#0B57D0</color>
+    <!-- App icon background -->
+    <color name="launcher_bg">#1F1F1F</color>
+</resources>
