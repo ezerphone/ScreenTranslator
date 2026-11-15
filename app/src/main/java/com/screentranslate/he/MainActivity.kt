@@ -15,6 +15,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
+import android.text.util.Linkify
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -236,25 +237,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showHelp() {
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("איך משתמשים")
             .setMessage(
-                "• כתוב או הדבק טקסט למעלה – הוא מתורגם תוך כדי.\n" +
-                    "• אנגלית, סינית וערבית לעברית, בלי אינטרנט.\n" +
-                    "• את שפת המקור בוחרים כאן, בכפתור השפה – והיא קובעת בכל המקומות: מסך, מצלמה, תמונות וטקסט.\n\n" +
-                    "תרגום מסך:\n" +
-                    "• בחלון האישור של אנדרואיד בחר \"כל המסך\".\n" +
-                    "• הקשה על \"תרגם\" – תרגום כל המסך.\n" +
-                    "• לחיצה ארוכה על \"תרגם\" – תרגום אזור, תרגום חי, כיבוי.\n" +
-                    "• אחרי תרגום: \"כל הטקסט\" – כל התרגום ברצף, בחלון אחד.\n\n" +
-                    "עוד:\n" +
-                    "• סימון טקסט בכל אפליקציה ← \"תרגם לעברית\".\n" +
-                    "• שיתוף טקסט או תמונה ← \"תרגם לעברית\".\n" +
-                    "• אפשר להוסיף כפתור \"תרגום\" להגדרות המהירות."
+                "• שפת המקור נבחרת בכפתור השפה וקובעת בכל מקום.\n" +
+                    "• תרגום מסך: באישור של אנדרואיד בחר \"כל המסך\".\n" +
+                    "• כפתור צף: הקשה – כל המסך · לחיצה ארוכה – אזור, חי, כיבוי.\n" +
+                    "• בכל אפליקציה: בסימון או בשיתוף טקסט אפשר לבחור ← \"תרגם לעברית\".\n" +
+                    "• גם בשיתוף תמונה (מהגלריה, מצילום מסך) אפשר לבחור ← \"תרגם לעברית\".\n\n" +
+                    "להכשרת נגני אנדרואיד, צריבת רוט ועוד:\n" +
+                    "ezerphone0@gmail.com"
             )
             .setPositiveButton("הבנתי", null)
             .show()
+        // The email address opens a new email.
+        dialog.findViewById<TextView>(android.R.id.message)?.let {
+            Linkify.addLinks(it, Linkify.EMAIL_ADDRESSES)
+        }
     }
+
 
     // ---------------------------------------------------------------- screen button
 
